@@ -5,6 +5,7 @@ let audioChunks: Blob[] = [];
 interface RecordingMessage {
   target: 'offscreen';
   type: 'START_RECORDING' | 'STOP_RECORDING' | 'PAUSE_RECORDING' | 'RESUME_RECORDING';
+  audioSource?: 'microphone' | 'system';
 }
 
 // Handle messages from background script
@@ -16,7 +17,8 @@ chrome.runtime.onMessage.addListener((message: RecordingMessage, _sender, sendRe
 
   switch (message.type) {
     case 'START_RECORDING':
-      startRecording()
+      console.log('Starting recording with audio source:', message.audioSource);
+      startRecording(message.audioSource)
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, error: error.message }));
       return true; // Keep message channel open for async response
@@ -56,7 +58,7 @@ chrome.runtime.onMessage.addListener((message: RecordingMessage, _sender, sendRe
   }
 });
 
-async function startRecording(): Promise<void> {
+async function startRecording(audioSource: 'microphone' | 'system' = 'microphone'): Promise<void> {
   try {
     // Clean up any existing recording
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -64,17 +66,33 @@ async function startRecording(): Promise<void> {
       audioChunks = [];
     }
 
-    console.log('Requesting microphone access...');
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: 44100
-      }
-    });
+    console.log(`Requesting ${audioSource} audio access...`);
+    let stream: MediaStream;
 
-    console.log('Microphone access granted, audio tracks:', stream.getAudioTracks().length);
+    if (audioSource === 'system') {
+      // Get system audio (desktop audio)
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: false,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 44100
+        }
+      });
+    } else {
+      // Get microphone audio
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 44100
+        }
+      });
+    }
+
+    console.log(`${audioSource} access granted, audio tracks:`, stream.getAudioTracks().length);
 
     const mimeType = getSupportedMimeType();
     if (!mimeType) {

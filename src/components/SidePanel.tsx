@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { RichTextEditor } from './RichTextEditor';
 import { SoundSpectrum } from './SoundSpectrum';
 import { SetupDialog } from './SetupDialog';
-import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2 } from 'lucide-react';
+import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2, Monitor, Headphones } from 'lucide-react';
 import { formatTime, isValidAudioBlob, formatErrorMessage } from '../lib/utils';
 import { googleDriveService } from '../services/googleDriveService';
 import { cn } from '../lib/utils';
@@ -46,6 +46,7 @@ export const SidePanel: React.FC = () => {
     isPaused,
     recordingTime,
     isSetupComplete,
+    audioSource,
     setActivityName,
     setDescription,
     setNotes,
@@ -58,6 +59,7 @@ export const SidePanel: React.FC = () => {
     getFormattedSession,
     loadSetupStatus,
     setSetupComplete,
+    setAudioSource,
   } = useRecorderStore();
 
   // Load setup status on component mount
@@ -120,7 +122,8 @@ export const SidePanel: React.FC = () => {
       startRecording();
 
       const startResponse = await chrome.runtime.sendMessage({
-        type: 'START_RECORDING'
+        type: 'START_RECORDING',
+        audioSource: audioSource
       });
       console.log('Start recording response:', startResponse);
 
@@ -319,15 +322,42 @@ export const SidePanel: React.FC = () => {
 
       {/* Recording Controls */}
       <div className="space-y-4">
-        {/* Microphone Permission Notice */}
+        {/* Audio Source Selection */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <div className="text-sm text-blue-800">
-            <div className="flex items-center gap-2 mb-1">
+            <div className="flex items-center gap-2 mb-2">
               <Volume2 className="w-4 h-4" />
-              <span className="font-medium">Microphone Access Required</span>
+              <span className="font-medium">Audio Source</span>
             </div>
-            <p className="text-xs">
-              Click "Start Recording" to grant microphone permission. Chrome will ask for permission before recording begins.
+            <div className="flex gap-2">
+              <button
+                onClick={() => setAudioSource('microphone')}
+                className={`flex items-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors ${
+                  audioSource === 'microphone'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-blue-600 border border-blue-300 hover:bg-blue-50'
+                }`}
+              >
+                <Headphones className="w-3 h-3" />
+                Microphone
+              </button>
+              <button
+                onClick={() => setAudioSource('system')}
+                className={`flex items-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors ${
+                  audioSource === 'system'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-blue-600 border border-blue-300 hover:bg-blue-50'
+                }`}
+              >
+                <Monitor className="w-3 h-3" />
+                System Audio
+              </button>
+            </div>
+            <p className="text-xs mt-2">
+              {audioSource === 'microphone'
+                ? 'Records microphone input (voice, meetings)'
+                : 'Records desktop/system audio (music, videos)'
+              }
             </p>
           </div>
         </div>

@@ -21,6 +21,9 @@ interface RecorderState {
   // Setup state
   isSetupComplete: boolean;
 
+  // Audio source selection
+  audioSource: 'microphone' | 'system';
+
   // Actions
   setActivityName: (name: string) => void;
   setDescription: (description: string) => void;
@@ -34,6 +37,7 @@ interface RecorderState {
   getFormattedSession: () => Partial<RecordingSession> & { duration: number };
   setSetupComplete: (complete: boolean) => void;
   loadSetupStatus: () => Promise<void>;
+  setAudioSource: (source: 'microphone' | 'system') => void;
 }
 
 export const useRecorderStore = create<RecorderState>((set, get) => ({
@@ -50,6 +54,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   isPaused: false,
   recordingTime: 0,
   isSetupComplete: false,
+  audioSource: 'microphone',
 
   // Actions
   setActivityName: (name: string) =>
@@ -144,4 +149,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       set({ isSetupComplete: false });
     }
   },
+
+  setAudioSource: (source: 'microphone' | 'system') =>
+    set({ audioSource: source }),
 }));
