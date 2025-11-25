@@ -93,13 +93,32 @@ export const SidePanel: React.FC = () => {
     try {
       console.log('🎤 Starting recording...');
 
-      // Request background script to create offscreen document
+      // First, check microphone permission directly
+      console.log('Checking microphone permission...');
+      const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      console.log('Permission state:', permission.state);
+
+      if (permission.state === 'denied') {
+        alert('🎤 Microphone permission is blocked!\n\nTo fix this:\n1. Click the extension icon in Chrome toolbar\n2. Click "Site settings" or "Permissions"\n3. Set "Microphone" to "Allow"\n4. Reload this extension and try again');
+        return;
+      }
+
+      if (permission.state === 'prompt') {
+        console.log('Permission will be requested...');
+      }
+
+      // Request microphone access directly first
+      console.log('Requesting microphone access...');
+      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('Microphone access granted successfully');
+      testStream.getTracks().forEach(track => track.stop());
+
+      // Now proceed with recording
       const createResponse = await chrome.runtime.sendMessage({ type: 'OPEN_OFFSCREEN' });
       console.log('Create offscreen response:', createResponse);
 
       startRecording();
 
-      // Start recording in offscreen document
       const startResponse = await chrome.runtime.sendMessage({
         type: 'START_RECORDING'
       });
@@ -108,16 +127,26 @@ export const SidePanel: React.FC = () => {
       if (!startResponse?.success) {
         console.error('Recording failed to start:', startResponse?.error);
 
-        // Simple error message for permission issues
         if (startResponse?.error?.includes('Permission') || startResponse?.error?.includes('dismissed')) {
-          alert('🎤 Microphone permission required!\n\nPlease click "Allow" when Chrome asks for microphone access.\n\nIf you clicked "Block" by mistake:\n• Reload the extension\n• Try recording again');
+          alert('🎤 Microphone permission was denied!\n\nPlease:\n1. Click the permission popup that appears\n2. Select "Allow" for microphone access\n3. Try recording again');
         } else {
           alert(`🎤 Recording failed: ${startResponse?.error || 'Unknown error'}`);
         }
       }
     } catch (error) {
       console.error('Failed to start recording:', error);
-      alert('🎤 Failed to start recording. Please try again.');
+
+      if (error instanceof Error) {
+        if (error.name === 'NotAllowedError') {
+          alert('🎤 Microphone permission denied!\n\nPlease allow microphone access when Chrome asks for it.\n\nIf you accidentally blocked it:\n1. Go to Chrome Settings → Privacy and security → Site Settings → Microphone\n2. Remove this extension from "Not allowed to use"\n3. Try recording again');
+        } else if (error.name === 'NotFoundError') {
+          alert('🎤 No microphone found!\n\nPlease connect a microphone and try again.');
+        } else {
+          alert(`🎤 Failed to start recording: ${error.message}`);
+        }
+      } else {
+        alert('🎤 Failed to start recording. Please try again.');
+      }
     }
   };
 
@@ -290,7 +319,19 @@ export const SidePanel: React.FC = () => {
 
       {/* Recording Controls */}
       <div className="space-y-4">
-        
+        {/* Microphone Permission Notice */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="text-sm text-blue-800">
+            <div className="flex items-center gap-2 mb-1">
+              <Volume2 className="w-4 h-4" />
+              <span className="font-medium">Microphone Access Required</span>
+            </div>
+            <p className="text-xs">
+              Click "Start Recording" to grant microphone permission. Chrome will ask for permission before recording begins.
+            </p>
+          </div>
+        </div>
+
         {/* Sound Spectrum Visualizer */}
         {isRecording && (
           <div className="space-y-2">

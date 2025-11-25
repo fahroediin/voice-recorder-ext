@@ -26,11 +26,15 @@ class GoogleDriveService {
     try {
       // Check if setup is complete first
       const result = await chrome.storage.local.get(['googleClientId']);
-      if (!result.googleClientId) {
+      const clientId = result.googleClientId;
+
+      console.log('Using Client ID for authentication:', clientId ? clientId.substring(0, 10) + '...' : 'Not found');
+
+      if (!clientId) {
         throw new Error('Google Drive not configured. Please complete setup first.');
       }
 
-      // Use Chrome Identity API to get OAuth token
+      // Use Chrome Identity API with the client ID
       return new Promise((resolve, reject) => {
         chrome.identity.getAuthToken(
           {
@@ -39,8 +43,16 @@ class GoogleDriveService {
           },
           (token) => {
             if (chrome.runtime.lastError) {
-              reject(new Error(`Authentication failed: ${chrome.runtime.lastError.message}`));
+              console.error('Chrome Identity API error:', chrome.runtime.lastError);
+
+              // Provide more helpful error messages
+              if (chrome.runtime.lastError.message?.includes('OAuth2') || chrome.runtime.lastError.message?.includes('Client ID')) {
+                reject(new Error('Invalid Google Client ID. Please:\n1. Go to Google Cloud Console\n2. Create OAuth 2.0 Client ID for Chrome Extension\n3. Copy the Client ID and update extension settings\n4. Reload the extension'));
+              } else {
+                reject(new Error(`Authentication failed: ${chrome.runtime.lastError.message}`));
+              }
             } else if (token) {
+              console.log('Successfully received auth token');
               resolve(token);
             } else {
               reject(new Error('No authentication token received'));
