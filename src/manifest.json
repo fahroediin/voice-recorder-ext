@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Voice Recorder & Notes",
+  "version": "1.0.0",
+  "description": "Record audio and take notes, then save everything to Google Drive in organized folders",
+  "permissions": [
+    "identity",
+    "storage",
+    "offscreen",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://www.googleapis.com/*"
+  ],
+    "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel.html"
+  },
+  "action": {
+    "default_title": "Open Voice Recorder"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
