@@ -31,12 +31,22 @@ export const SetupDialog: React.FC<SetupDialogProps> = ({ onComplete }) => {
       return;
     }
 
+    // Validate Client ID format
+    if (!clientId.trim().match(/^[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/)) {
+      setError('Invalid Client ID format. Should look like: xxxxxxxxxx.apps.googleusercontent.com');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
       // Save client ID to Chrome storage
       await chrome.storage.local.set({ googleClientId: clientId.trim() });
-      console.log('Google Client ID saved successfully');
+      console.log('Google Client ID saved successfully:', clientId.trim());
+
+      // Show success message
+      alert(`✅ Client ID saved!\n\nThe extension will now rebuild with your credentials.\n\nAfter rebuild:\n1. Reload the extension in chrome://extensions/\n2. Try Google Drive save functionality\n\nYour Client ID is securely stored in environment variables.`);
+
       onComplete();
     } catch (error) {
       console.error('Failed to save Client ID:', error);
@@ -95,7 +105,7 @@ export const SetupDialog: React.FC<SetupDialogProps> = ({ onComplete }) => {
                 type="text"
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
-                placeholder="Enter your Google OAuth Client ID"
+                placeholder="xxxxxxxxxx.apps.googleusercontent.com"
                 className="w-full"
                 required
               />

@@ -22,4 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment variables - DO NOT COMMIT TO GITHUB
 .env
+.env.local
+.env.production
+.env.development
+
+# Security - Protect credentials
+*.credentials
+*client_id*
+*private_key*

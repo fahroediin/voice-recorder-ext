@@ -24,17 +24,9 @@ class GoogleDriveService {
    */
   async getAccessToken(): Promise<string> {
     try {
-      // Check if setup is complete first
-      const result = await chrome.storage.local.get(['googleClientId']);
-      const clientId = result.googleClientId;
+      console.log('Requesting Google Drive authentication token...');
 
-      console.log('Using Client ID for authentication:', clientId ? clientId.substring(0, 10) + '...' : 'Not found');
-
-      if (!clientId) {
-        throw new Error('Google Drive not configured. Please complete setup first.');
-      }
-
-      // Use Chrome Identity API with the client ID
+      // Use Chrome Identity API (Client ID is in manifest)
       return new Promise((resolve, reject) => {
         chrome.identity.getAuthToken(
           {
@@ -45,14 +37,14 @@ class GoogleDriveService {
             if (chrome.runtime.lastError) {
               console.error('Chrome Identity API error:', chrome.runtime.lastError);
 
-              // Provide more helpful error messages
+              // Provide helpful error messages
               if (chrome.runtime.lastError.message?.includes('OAuth2') || chrome.runtime.lastError.message?.includes('Client ID')) {
-                reject(new Error('Invalid Google Client ID. Please:\n1. Go to Google Cloud Console\n2. Create OAuth 2.0 Client ID for Chrome Extension\n3. Copy the Client ID and update extension settings\n4. Reload the extension'));
+                reject(new Error('Google Drive authentication failed. Please ensure:\n1. Extension has a valid Google Client ID in manifest\n2. Client ID is configured for Chrome Application\n3. Google Drive API is enabled'));
               } else {
                 reject(new Error(`Authentication failed: ${chrome.runtime.lastError.message}`));
               }
             } else if (token) {
-              console.log('Successfully received auth token');
+              console.log('✅ Successfully received Google Drive auth token');
               resolve(token);
             } else {
               reject(new Error('No authentication token received'));

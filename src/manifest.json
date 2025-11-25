@@ -12,6 +12,12 @@
   "host_permissions": [
     "https://www.googleapis.com/*"
   ],
+  "oauth2": {
+    "client_id": "__GOOGLE_CLIENT_ID__",
+    "scopes": [
+      "https://www.googleapis.com/auth/drive.file"
+    ]
+  },
     "background": {
     "service_worker": "background.js",
     "type": "module"
