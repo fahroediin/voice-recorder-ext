@@ -51,8 +51,10 @@ export const SidePanel: React.FC = () => {
     selectedMicrophoneId,
     isTranscribing,
     transcription,
+    interimTranscription,
     transcriptionEnabled,
     transcriptionLanguage,
+    realTimeTranscriptionEnabled,
     setActivityName,
     setDescription,
     setNotes,
@@ -70,8 +72,12 @@ export const SidePanel: React.FC = () => {
     setSelectedMicrophoneId,
     transcribeAudio,
     setTranscription,
+    setInterimTranscription,
     setTranscriptionEnabled,
     setTranscriptionLanguage,
+    startRealTimeTranscription,
+    stopRealTimeTranscription,
+    setRealTimeTranscriptionEnabled,
   } = useRecorderStore();
 
   // Load setup status and audio devices on component mount
@@ -79,6 +85,20 @@ export const SidePanel: React.FC = () => {
     loadSetupStatus();
     loadAudioDevices();
   }, [loadSetupStatus, loadAudioDevices]);
+
+  // Auto-start real-time transcription when recording starts with microphone
+  useEffect(() => {
+    if (isRecording && transcriptionEnabled && (audioSource === 'microphone' || audioSource === 'both') && !realTimeTranscriptionEnabled) {
+      console.log('🎤 Auto-starting real-time transcription for recording');
+      handleStartRealTimeTranscription();
+    }
+
+    // Stop real-time transcription when recording stops
+    if (!isRecording && realTimeTranscriptionEnabled) {
+      console.log('🔇 Auto-stopping real-time transcription');
+      handleStopRealTimeTranscription();
+    }
+  }, [isRecording, transcriptionEnabled, audioSource, realTimeTranscriptionEnabled, loadAudioDevices]);
 
   // Debug logging for state changes
   useEffect(() => {
@@ -241,6 +261,33 @@ export const SidePanel: React.FC = () => {
     } catch (error) {
       console.error('Failed to transcribe audio:', error);
       alert(`🎙️ Failed to transcribe audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleStartRealTimeTranscription = async () => {
+    try {
+      console.log('🎤 Starting real-time speech-to-text transcription...');
+      startRealTimeTranscription();
+    } catch (error) {
+      console.error('Failed to start real-time transcription:', error);
+      alert(`🎤 Failed to start real-time transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleStopRealTimeTranscription = async () => {
+    try {
+      console.log('⏹️ Stopping real-time transcription...');
+      const result = stopRealTimeTranscription();
+
+      // Add final transcription to notes
+      if (result.fullText.trim()) {
+        const currentNotes = currentSession.notes || '';
+        const transcriptionText = `\n\n--- Live Transcription (${transcriptionLanguage === 'id-ID' ? 'Indonesian' : 'English'}) ---\n${result.fullText.trim()}`;
+        setNotes(currentNotes + transcriptionText);
+      }
+    } catch (error) {
+      console.error('Failed to stop real-time transcription:', error);
+      alert(`⏹️ Failed to stop transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -523,7 +570,7 @@ export const SidePanel: React.FC = () => {
           )}
 
           <div className="text-xs text-purple-600">
-            💡 100% Accurate transcription - records speech exactly as spoken, no modifications
+            💡 Uses Chrome's Web Speech API (Google's speech recognition) for 100% accurate results
           </div>
         </div>
       </div>

@@ -38,8 +38,10 @@ interface RecorderState {
   // Speech-to-text state
   isTranscribing: boolean;
   transcription: string;
+  interimTranscription: string;
   transcriptionEnabled: boolean;
   transcriptionLanguage: 'id-ID' | 'en-US';
+  realTimeTranscriptionEnabled: boolean;
 
   // Actions
   setActivityName: (name: string) => void;
@@ -58,9 +60,13 @@ interface RecorderState {
   loadAudioDevices: () => Promise<void>;
   setSelectedMicrophoneId: (deviceId: string | null) => void;
   transcribeAudio: (audioBlob: Blob) => Promise<TranscriptionResult>;
+  startRealTimeTranscription: () => void;
+  stopRealTimeTranscription: () => void;
   setTranscription: (text: string) => void;
+  setInterimTranscription: (text: string) => void;
   setTranscriptionEnabled: (enabled: boolean) => void;
   setTranscriptionLanguage: (language: 'id-ID' | 'en-US') => void;
+  setRealTimeTranscriptionEnabled: (enabled: boolean) => void;
 }
 
 export const useRecorderStore = create<RecorderState>((set, get) => ({
@@ -82,8 +88,10 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   selectedMicrophoneId: null,
   isTranscribing: false,
   transcription: '',
+  interimTranscription: '',
   transcriptionEnabled: false,
   transcriptionLanguage: 'id-ID',
+  realTimeTranscriptionEnabled: false,
 
   // Actions
   setActivityName: (name: string) =>
@@ -252,9 +260,66 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   setTranscription: (text: string) =>
     set({ transcription: text }),
 
+  setInterimTranscription: (text: string) =>
+    set({ interimTranscription: text }),
+
   setTranscriptionEnabled: (enabled: boolean) =>
     set({ transcriptionEnabled: enabled }),
 
   setTranscriptionLanguage: (language: 'id-ID' | 'en-US') =>
     set({ transcriptionLanguage: language }),
+
+  setRealTimeTranscriptionEnabled: (enabled: boolean) =>
+    set({ realTimeTranscriptionEnabled: enabled }),
+
+  startRealTimeTranscription: () => {
+    try {
+      const state = get();
+      speechToTextService.startRealTimeTranscription(state.transcriptionLanguage);
+      set({
+        isTranscribing: true,
+        realTimeTranscriptionEnabled: true,
+        transcription: '',
+        interimTranscript: ''
+      });
+
+      // Start polling for real-time updates
+      const pollInterval = setInterval(() => {
+        const current = speechToTextService.getRealTimeTranscription();
+        if (current.isListening) {
+          set({
+            transcription: current.final,
+            interimTranscription: current.interim
+          });
+        } else {
+          clearInterval(pollInterval);
+          set({
+            isTranscribing: false,
+            interimTranscript: ''
+          });
+        }
+      }, 100);
+
+    } catch (error) {
+      console.error('Failed to start real-time transcription:', error);
+      set({ isTranscribing: false });
+      throw error;
+    }
+  },
+
+  stopRealTimeTranscription: () => {
+    try {
+      const result = speechToTextService.stopRealTimeTranscription();
+      set({
+        isTranscribing: false,
+        realTimeTranscriptionEnabled: false,
+        transcription: result.fullText,
+        interimTranscript: ''
+      });
+    } catch (error) {
+      console.error('Failed to stop real-time transcription:', error);
+      set({ isTranscribing: false });
+      throw error;
+    }
+  },
 }));
