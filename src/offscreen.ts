@@ -5,7 +5,8 @@ let audioChunks: Blob[] = [];
 interface RecordingMessage {
   target: 'offscreen';
   type: 'START_RECORDING' | 'STOP_RECORDING' | 'PAUSE_RECORDING' | 'RESUME_RECORDING';
-  audioSource?: 'microphone' | 'system';
+  audioSource?: 'microphone' | 'system' | 'both';
+  microphoneId?: string | null;
 }
 
 // Handle messages from background script
@@ -17,8 +18,8 @@ chrome.runtime.onMessage.addListener((message: RecordingMessage, _sender, sendRe
 
   switch (message.type) {
     case 'START_RECORDING':
-      console.log('Starting recording with audio source:', message.audioSource);
-      startRecording(message.audioSource)
+      console.log('Starting recording with audio source:', message.audioSource, 'mic ID:', message.microphoneId);
+      startRecording(message.audioSource, message.microphoneId)
         .then(() => sendResponse({ success: true }))
         .catch((error) => sendResponse({ success: false, error: error.message }));
       return true; // Keep message channel open for async response
@@ -58,7 +59,10 @@ chrome.runtime.onMessage.addListener((message: RecordingMessage, _sender, sendRe
   }
 });
 
-async function startRecording(audioSource: 'microphone' | 'system' = 'microphone'): Promise<void> {
+async function startRecording(
+  audioSource: 'microphone' | 'system' | 'both' = 'microphone',
+  microphoneId: string | null = null
+): Promise<void> {
   try {
     // Clean up any existing recording
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
@@ -67,22 +71,182 @@ async function startRecording(audioSource: 'microphone' | 'system' = 'microphone
     }
 
     console.log(`Requesting ${audioSource} audio access...`);
-    let stream: MediaStream;
+    let combinedStream: MediaStream;
+    let tracks: MediaStreamTrack[] = [];
 
-    if (audioSource === 'system') {
-      // Get system audio (desktop audio)
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: false,
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          sampleRate: 44100
+    if (audioSource === 'both') {
+      // Get both microphone and system audio
+      console.log('Requesting both microphone and system audio...');
+      let systemStream: MediaStream | null = null;
+      let micStream: MediaStream | null = null;
+
+      try {
+        // Get system audio first
+        systemStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true, // Video required for getDisplayMedia to work
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 44100
+          }
+        });
+
+        // Check if system audio tracks are available
+        const systemTracks = systemStream.getAudioTracks();
+        if (systemTracks.length === 0) {
+          console.warn('System audio tracks not found, stopping system stream...');
+          systemStream.getTracks().forEach(track => track.stop());
+          systemStream = null;
+        } else {
+          console.log('System audio granted');
         }
-      });
+      } catch (systemError) {
+        console.warn('System audio access denied:', systemError);
+        systemStream = null;
+        // Continue with microphone only if system audio fails
+      }
+
+      try {
+        // Get microphone with specific device ID if provided
+        const audioConstraints: MediaStreamConstraints = {
+          audio: microphoneId ? {
+            deviceId: { exact: microphoneId },
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 44100
+          } : {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 44100
+          }
+        };
+
+        micStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+        console.log('Microphone access granted', microphoneId ? `with device ID: ${microphoneId}` : 'with default device');
+      } catch (micError) {
+        console.error('Microphone access denied:', micError);
+        // Clean up system audio if mic fails
+        if (systemStream) {
+          systemStream.getTracks().forEach(track => track.stop());
+        }
+
+        // If specific device failed, try fallback to default
+        if (microphoneId) {
+          console.warn('Failed to use selected microphone, trying default...');
+          try {
+            micStream = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                sampleRate: 44100
+              }
+            });
+            console.log('Fallback microphone access granted');
+          } catch (fallbackError) {
+            throw new Error('Microphone access is required for recording. Please allow microphone access.');
+          }
+        } else {
+          throw new Error('Microphone access is required for recording. Please allow microphone access.');
+        }
+      }
+
+      // Combine both streams, fallback to microphone only if system audio failed
+      if (systemStream && micStream) {
+        tracks = [...systemStream.getAudioTracks(), ...micStream.getAudioTracks()];
+        console.log(`Combined audio tracks: ${tracks.length} (system: ${systemStream.getAudioTracks().length}, mic: ${micStream.getAudioTracks().length})`);
+      } else if (micStream) {
+        tracks = micStream.getAudioTracks();
+        console.log(`Using microphone only (${tracks.length} tracks) - system audio not available`);
+      } else {
+        throw new Error('Failed to get any audio source');
+      }
+
+    } else if (audioSource === 'system') {
+      // Get system audio ONLY - no microphone fallback allowed
+      let systemStream: MediaStream;
+      try {
+        // First try with detailed audio constraints
+        systemStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            sampleRate: 44100
+          }
+        });
+
+        // Get only audio tracks, ignore video tracks
+        tracks = systemStream.getAudioTracks();
+        console.log(`System audio tracks: ${tracks.length}`);
+
+        if (tracks.length === 0) {
+          console.warn('No audio tracks found with detailed constraints, trying simpler method...');
+          systemStream.getTracks().forEach(track => track.stop());
+
+          // Try alternative method with simple audio constraint
+          try {
+            console.log('Trying alternative method for system audio...');
+            systemStream = await navigator.mediaDevices.getDisplayMedia({
+              video: true,
+              audio: true  // Simple audio constraint
+            });
+
+            tracks = systemStream.getAudioTracks();
+            console.log(`Alternative method - System audio tracks: ${tracks.length}`);
+
+            if (tracks.length === 0) {
+              systemStream.getTracks().forEach(track => track.stop());
+              throw new Error('No system audio found. This happens when:\n• "Share audio" was not checked in the screen sharing dialog\n• No audio is currently playing on your system\n• Your system doesn\'t allow audio sharing\n\nPlease try again with "Share audio" checked while audio is playing.');
+            } else {
+              console.log('✅ System audio access granted via alternative method');
+            }
+          } catch (alternativeError) {
+            console.error('Alternative method failed:', alternativeError);
+            throw new Error('Failed to capture system audio. Please ensure:\n• You check "Share audio" in the screen sharing dialog\n• Audio is playing on your system\n• Your system allows audio sharing\n\nIf this continues to fail, consider using "Microphone" mode instead.');
+          }
+        } else {
+          console.log('✅ System audio access granted');
+        }
+
+        // IMPORTANT: Disable ALL microphone-like processing for system audio
+        tracks.forEach(track => {
+          const constraints = track.getConstraints();
+          console.log('Original track constraints:', constraints);
+
+          // Try to disable echo cancellation, noise suppression, etc for system audio
+          track.applyConstraints({
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }).catch(e => console.warn('Could not apply constraints to system audio track:', e));
+        });
+
+      } catch (systemError) {
+        console.error('System audio access failed:', systemError);
+
+        if (systemError instanceof Error) {
+          if (systemError.name === 'NotAllowedError') {
+            throw new Error('Screen sharing was cancelled. Please allow screen sharing and check "Share audio".');
+          } else if (systemError.name === 'NotSupportedError') {
+            throw new Error('System audio recording is not supported in this browser or environment.');
+          } else if (systemError.name === 'AbortError') {
+            throw new Error('Screen sharing was cancelled. Please try again.');
+          } else {
+            throw new Error(`Failed to access system audio: ${systemError.message}`);
+          }
+        } else {
+          throw new Error('Failed to access system audio. Please try again.');
+        }
+      }
+
     } else {
-      // Get microphone audio
-      stream = await navigator.mediaDevices.getUserMedia({
+      // Get microphone only
+      const micStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -90,16 +254,19 @@ async function startRecording(audioSource: 'microphone' | 'system' = 'microphone
           sampleRate: 44100
         }
       });
+      tracks = micStream.getAudioTracks();
+      console.log(`Microphone tracks: ${tracks.length}`);
     }
 
-    console.log(`${audioSource} access granted, audio tracks:`, stream.getAudioTracks().length);
+    // Create combined stream
+    combinedStream = new MediaStream(tracks);
 
     const mimeType = getSupportedMimeType();
     if (!mimeType) {
       throw new Error('No supported audio format found');
     }
 
-    mediaRecorder = new MediaRecorder(stream, {
+    mediaRecorder = new MediaRecorder(combinedStream, {
       mimeType
     });
 
@@ -117,8 +284,8 @@ async function startRecording(audioSource: 'microphone' | 'system' = 'microphone
     };
 
     mediaRecorder.onstop = () => {
-      // Stop all tracks to release the microphone
-      stream.getTracks().forEach(track => {
+      // Stop all tracks to release all audio sources
+      tracks.forEach(track => {
         try {
           track.stop();
         } catch (e) {
@@ -128,7 +295,8 @@ async function startRecording(audioSource: 'microphone' | 'system' = 'microphone
     };
 
     mediaRecorder.start(1000); // Collect data every second
-    console.log('Recording started in offscreen document');
+    console.log(`✅ Recording started in offscreen document with ${audioSource} audio source`);
+    console.log(`🎤 Total audio tracks: ${tracks.length}`);
   } catch (error) {
     console.error('Error starting recording:', error);
 

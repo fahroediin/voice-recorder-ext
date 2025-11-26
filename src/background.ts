@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     case 'PAUSE_RECORDING':
     case 'RESUME_RECORDING':
       // Forward recording messages to offscreen document
-      console.log('Forwarding recording message with audioSource:', message.audioSource);
+      console.log('Forwarding recording message with audioSource:', message.audioSource, 'micId:', message.microphoneId);
       forwardToOffscreen(message, sendResponse);
       return true; // Keep message channel open
 

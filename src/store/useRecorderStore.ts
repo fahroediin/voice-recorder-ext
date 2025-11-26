@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { speechToTextService, type TranscriptionResult } from '../services/speechToTextService';
 
 export interface RecordingSession {
   id: string;
@@ -9,6 +10,12 @@ export interface RecordingSession {
   startTime: Date;
   endTime?: Date;
   duration: number;
+}
+
+export interface AudioDevice {
+  deviceId: string;
+  label: string;
+  kind: MediaDeviceKind;
 }
 
 interface RecorderState {
@@ -22,7 +29,17 @@ interface RecorderState {
   isSetupComplete: boolean;
 
   // Audio source selection
-  audioSource: 'microphone' | 'system';
+  audioSource: 'microphone' | 'system' | 'both';
+
+  // Audio devices
+  audioDevices: AudioDevice[];
+  selectedMicrophoneId: string | null;
+
+  // Speech-to-text state
+  isTranscribing: boolean;
+  transcription: string;
+  interimTranscription: string;
+  transcriptionEnabled: boolean;
 
   // Actions
   setActivityName: (name: string) => void;
@@ -37,7 +54,14 @@ interface RecorderState {
   getFormattedSession: () => Partial<RecordingSession> & { duration: number };
   setSetupComplete: (complete: boolean) => void;
   loadSetupStatus: () => Promise<void>;
-  setAudioSource: (source: 'microphone' | 'system') => void;
+  setAudioSource: (source: 'microphone' | 'system' | 'both') => void;
+  loadAudioDevices: () => Promise<void>;
+  setSelectedMicrophoneId: (deviceId: string | null) => void;
+  startTranscription: () => Promise<void>;
+  stopTranscription: () => Promise<TranscriptionResult>;
+  setTranscription: (text: string) => void;
+  setInterimTranscription: (text: string) => void;
+  setTranscriptionEnabled: (enabled: boolean) => void;
 }
 
 export const useRecorderStore = create<RecorderState>((set, get) => ({
@@ -55,6 +79,12 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   recordingTime: 0,
   isSetupComplete: false,
   audioSource: 'microphone',
+  audioDevices: [],
+  selectedMicrophoneId: null,
+  isTranscribing: false,
+  transcription: '',
+  interimTranscription: '',
+  transcriptionEnabled: false,
 
   // Actions
   setActivityName: (name: string) =>
@@ -150,6 +180,104 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
     }
   },
 
-  setAudioSource: (source: 'microphone' | 'system') =>
+  setAudioSource: (source: 'microphone' | 'system' | 'both') =>
     set({ audioSource: source }),
+
+  loadAudioDevices: async () => {
+    try {
+      // First request microphone access to get device labels
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioDevices: AudioDevice[] = devices
+        .filter(device => device.kind === 'audioinput')
+        .map(device => ({
+          deviceId: device.deviceId,
+          label: device.label || `Microphone ${device.deviceId.slice(0, 8)}`,
+          kind: device.kind
+        }));
+
+      set({ audioDevices });
+
+      // Auto-select the first external microphone if available, otherwise the default
+      const externalMic = audioDevices.find(device =>
+        device.label.toLowerCase().includes('external') ||
+        device.label.toLowerCase().includes('usb') ||
+        device.label.toLowerCase().includes('headset')
+      );
+
+      const defaultMic = audioDevices.find(device =>
+        device.deviceId === 'default' ||
+        device.label.toLowerCase().includes('default')
+      );
+
+      set({
+        selectedMicrophoneId: externalMic?.deviceId || defaultMic?.deviceId || audioDevices[0]?.deviceId || null
+      });
+
+      console.log('Available audio devices:', audioDevices);
+      console.log('Selected microphone ID:', externalMic?.deviceId || defaultMic?.deviceId || audioDevices[0]?.deviceId || null);
+
+    } catch (error) {
+      console.error('Failed to load audio devices:', error);
+      set({ audioDevices: [], selectedMicrophoneId: null });
+    }
+  },
+
+  setSelectedMicrophoneId: (deviceId: string | null) =>
+    set({ selectedMicrophoneId: deviceId }),
+
+  startTranscription: async () => {
+    if (!speechToTextService.isSupported()) {
+      throw new Error('Speech recognition is not supported in this browser. Please use Chrome.');
+    }
+
+    try {
+      set({ isTranscribing: true, transcription: '', interimTranscription: '' });
+      await speechToTextService.startTranscription('id-ID');
+
+      // Start polling for transcription updates
+      const pollInterval = setInterval(() => {
+        const current = speechToTextService.getCurrentTranscription();
+        if (current.isListening) {
+          set({
+            transcription: current.final,
+            interimTranscription: current.interim
+          });
+        } else {
+          clearInterval(pollInterval);
+          set({ isTranscribing: false, interimTranscription: '' });
+        }
+      }, 100);
+
+      return;
+    } catch (error) {
+      set({ isTranscribing: false });
+      throw error;
+    }
+  },
+
+  stopTranscription: async () => {
+    try {
+      const result = speechToTextService.stopTranscription();
+      set({
+        isTranscribing: false,
+        transcription: result.fullText,
+        interimTranscription: ''
+      });
+      return result;
+    } catch (error) {
+      set({ isTranscribing: false });
+      throw error;
+    }
+  },
+
+  setTranscription: (text: string) =>
+    set({ transcription: text }),
+
+  setInterimTranscription: (text: string) =>
+    set({ interimTranscription: text }),
+
+  setTranscriptionEnabled: (enabled: boolean) =>
+    set({ transcriptionEnabled: enabled }),
 }));

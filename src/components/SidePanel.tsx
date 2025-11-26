@@ -3,10 +3,10 @@ import { useRecorderStore } from '../store/useRecorderStore';
 import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import { Button } from './ui/button';
-import { RichTextEditor } from './RichTextEditor';
+import { PlainTextEditor } from './PlainTextEditor';
 import { SoundSpectrum } from './SoundSpectrum';
 import { SetupDialog } from './SetupDialog';
-import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2, Monitor, Headphones } from 'lucide-react';
+import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2, Monitor, Headphones, Layers, MessageCircle, Sparkles, Settings } from 'lucide-react';
 import { formatTime, isValidAudioBlob, formatErrorMessage } from '../lib/utils';
 import { googleDriveService } from '../services/googleDriveService';
 import { cn } from '../lib/utils';
@@ -47,6 +47,12 @@ export const SidePanel: React.FC = () => {
     recordingTime,
     isSetupComplete,
     audioSource,
+    audioDevices,
+    selectedMicrophoneId,
+    isTranscribing,
+    transcription,
+    interimTranscription,
+    transcriptionEnabled,
     setActivityName,
     setDescription,
     setNotes,
@@ -60,12 +66,19 @@ export const SidePanel: React.FC = () => {
     loadSetupStatus,
     setSetupComplete,
     setAudioSource,
+    loadAudioDevices,
+    setSelectedMicrophoneId,
+    startTranscription,
+    stopTranscription,
+    setTranscription,
+    setTranscriptionEnabled,
   } = useRecorderStore();
 
-  // Load setup status on component mount
+  // Load setup status and audio devices on component mount
   useEffect(() => {
     loadSetupStatus();
-  }, [loadSetupStatus]);
+    loadAudioDevices();
+  }, [loadSetupStatus, loadAudioDevices]);
 
   // Debug logging for state changes
   useEffect(() => {
@@ -123,7 +136,8 @@ export const SidePanel: React.FC = () => {
 
       const startResponse = await chrome.runtime.sendMessage({
         type: 'START_RECORDING',
-        audioSource: audioSource
+        audioSource: audioSource,
+        microphoneId: selectedMicrophoneId
       });
       console.log('Start recording response:', startResponse);
 
@@ -202,6 +216,84 @@ export const SidePanel: React.FC = () => {
       console.log('Pause/Resume response:', response);
     } catch (error) {
       console.error('Failed to pause/resume recording:', error);
+    }
+  };
+
+  const handleStartTranscription = async () => {
+    try {
+      console.log('🎙️ Starting speech-to-text transcription...');
+      await startTranscription();
+    } catch (error) {
+      console.error('Failed to start transcription:', error);
+      alert(`🎙️ Failed to start transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleStopTranscription = async () => {
+    try {
+      console.log('⏹️ Stopping transcription...');
+      const result = await stopTranscription();
+
+      // Add transcription to notes
+      if (result.fullText.trim()) {
+        const currentNotes = currentSession.notes || '';
+        const transcriptionText = `\n\n--- Live Transcription ---\n${result.fullText.trim()}`;
+        setNotes(currentNotes + transcriptionText);
+      }
+    } catch (error) {
+      console.error('Failed to stop transcription:', error);
+      alert(`⏹️ Failed to stop transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleEnhanceTranscription = async () => {
+    if (!transcription.trim()) {
+      alert('🎙️ No transcription available to enhance. Please record some speech first.');
+      return;
+    }
+
+    try {
+      const { speechToTextService } = await import('../services/speechToTextService');
+      console.log('✨ Enhancing transcription with AI...');
+
+      const enhancedText = await speechToTextService.enhanceTranscription(
+        transcription,
+        `${currentSession.name} - ${currentSession.description || ''}`
+      );
+
+      // Replace notes with enhanced transcription
+      setNotes(enhancedText);
+      setTranscription(enhancedText);
+    } catch (error) {
+      console.error('Failed to enhance transcription:', error);
+      alert(`✨ Failed to enhance transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!transcription.trim() && !(currentSession.notes || '').trim()) {
+      alert('📋 No content available for summary. Please record some speech or add notes first.');
+      return;
+    }
+
+    try {
+      const { speechToTextService } = await import('../services/speechToTextService');
+      console.log('📋 Generating AI summary...');
+
+      const content = transcription.trim() || (currentSession.notes || '');
+      const summary = await speechToTextService.generateMeetingSummary(
+        content,
+        currentSession.name,
+        currentSession.description
+      );
+
+      // Add summary to notes
+      const currentNotes = currentSession.notes || '';
+      const summaryText = `\n\n--- AI-Generated Summary ---\n${summary}`;
+      setNotes(currentNotes + summaryText);
+    } catch (error) {
+      console.error('Failed to generate summary:', error);
+      alert(`📋 Failed to generate summary: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -308,12 +400,108 @@ export const SidePanel: React.FC = () => {
         </div>
       </div>
 
+      {/* Speech-to-Text Controls */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <MessageCircle className="w-4 h-4" />
+          <label className="text-sm font-medium">
+            Speech-to-Text Transcription
+          </label>
+        </div>
+
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-purple-800">
+              🎙️ Real-time speech transcription
+            </span>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={transcriptionEnabled}
+                onChange={(e) => setTranscriptionEnabled(e.target.checked)}
+                className="rounded"
+              />
+              Enable
+            </label>
+          </div>
+
+          {transcriptionEnabled && (
+            <>
+              <div className="flex gap-2">
+                {!isTranscribing ? (
+                  <Button
+                    onClick={handleStartTranscription}
+                    size="sm"
+                    className="bg-purple-600 hover:bg-purple-700 text-white"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-1" />
+                    Start Transcription
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleStopTranscription}
+                    size="sm"
+                    variant="destructive"
+                  >
+                    <Square className="w-4 h-4 mr-1" />
+                    Stop Transcription
+                  </Button>
+                )}
+
+                {transcription && (
+                  <>
+                    <Button
+                      onClick={handleEnhanceTranscription}
+                      size="sm"
+                      variant="outline"
+                      className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                    >
+                      <Sparkles className="w-4 h-4 mr-1" />
+                      Enhance with AI
+                    </Button>
+
+                    <Button
+                      onClick={handleGenerateSummary}
+                      size="sm"
+                      variant="outline"
+                      className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                    >
+                      <Settings className="w-4 h-4 mr-1" />
+                      Generate Summary
+                    </Button>
+                  </>
+                )}
+              </div>
+
+              {/* Live Transcription Display */}
+              {(isTranscribing || transcription) && (
+                <div className="bg-white border border-purple-200 rounded p-2 max-h-32 overflow-y-auto">
+                  <div className="text-xs text-gray-600 mb-1">
+                    {isTranscribing ? '🔴 Live transcription...' : '📝 Transcription complete'}
+                  </div>
+                  <div className="text-sm">
+                    {transcription}
+                    {interimTranscription && (
+                      <span className="text-gray-400 italic"> {interimTranscription}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="text-xs text-purple-600">
+            💡 Uses Chrome's built-in speech recognition + Gemini AI enhancement
+          </div>
+        </div>
+      </div>
+
       {/* Meeting Notes */}
       <div>
         <label htmlFor="notes" className="text-sm font-medium">
           Meeting Notes
         </label>
-        <RichTextEditor
+        <PlainTextEditor
           content={currentSession.notes || ''}
           onChange={setNotes}
           placeholder="Take your meeting notes here..."
@@ -329,36 +517,113 @@ export const SidePanel: React.FC = () => {
               <Volume2 className="w-4 h-4" />
               <span className="font-medium">Audio Source</span>
             </div>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-2 mb-2">
               <button
                 onClick={() => setAudioSource('microphone')}
-                className={`flex items-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors ${
+                className={`flex flex-col items-center gap-1 px-2 py-2 rounded text-xs font-medium transition-colors ${
                   audioSource === 'microphone'
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-blue-600 border border-blue-300 hover:bg-blue-50'
                 }`}
               >
-                <Headphones className="w-3 h-3" />
+                <Headphones className="w-4 h-4" />
                 Microphone
               </button>
               <button
                 onClick={() => setAudioSource('system')}
-                className={`flex items-center gap-2 px-3 py-2 rounded text-xs font-medium transition-colors ${
+                className={`flex flex-col items-center gap-1 px-2 py-2 rounded text-xs font-medium transition-colors ${
                   audioSource === 'system'
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-blue-600 border border-blue-300 hover:bg-blue-50'
                 }`}
               >
-                <Monitor className="w-3 h-3" />
-                System Audio
+                <Monitor className="w-4 h-4" />
+                System
+              </button>
+              <button
+                onClick={() => setAudioSource('both')}
+                className={`flex flex-col items-center gap-1 px-2 py-2 rounded text-xs font-medium transition-colors ${
+                  audioSource === 'both'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-blue-600 border border-blue-300 hover:bg-blue-50'
+                }`}
+              >
+                <Layers className="w-4 h-4" />
+                Both
               </button>
             </div>
-            <p className="text-xs mt-2">
-              {audioSource === 'microphone'
-                ? 'Records microphone input (voice, meetings)'
-                : 'Records desktop/system audio (music, videos)'
-              }
+            <p className="text-xs">
+              {audioSource === 'microphone' && '🎤 Records your voice only (for meetings, voice notes)'}
+              {audioSource === 'system' && '🔊 Records system audio only (music, videos, sounds)'}
+              {audioSource === 'both' && '🎤+🔊 Records both voice and system audio (perfect for online meetings)'}
             </p>
+            {(audioSource === 'system' || audioSource === 'both') && (
+              <div className="bg-yellow-50 border border-yellow-300 rounded p-2 mt-2">
+                <p className="text-xs text-yellow-800">
+                  <strong>⚠️ Screen Sharing Required:</strong> Chrome will ask you to select a screen/window to share. <strong>Important:</strong> Check the "Share audio" checkbox at the bottom.
+                </p>
+
+                {/* Step-by-step instructions */}
+                <div className="mt-2 text-xs text-yellow-700">
+                  <strong>📋 Steps:</strong>
+                  <ol className="ml-3 mt-1 list-decimal">
+                    <li>When Chrome asks, select a screen or window</li>
+                    <li><strong>Check "Share audio" at the bottom</strong></li>
+                    <li>Click "Share"</li>
+                  </ol>
+                </div>
+
+                {/* Troubleshooting tips */}
+                <div className="mt-2 text-xs text-yellow-700">
+                  <strong>🔧 If it fails:</strong>
+                  <ul className="ml-3 mt-1 list-disc">
+                    <li>Make sure audio is playing (music, video, etc.)</li>
+                    <li>Try playing audio before starting recording</li>
+                    <li>Some systems don't allow audio sharing</li>
+                    <li>Consider using "Microphone" mode instead</li>
+                  </ul>
+                </div>
+
+                {audioSource === 'system' && (
+                  <div className="mt-2">
+                    <p className="text-xs text-yellow-700">
+                      💡 Records: Music, videos, games, system sounds
+                    </p>
+                    <p className="text-xs text-yellow-600 mt-1">
+                      🔇 <strong>No microphone audio</strong> - only system audio
+                    </p>
+                  </div>
+                )}
+                {audioSource === 'both' && (
+                  <p className="text-xs text-yellow-700 mt-2">
+                    💡 Perfect for: Online meetings, calls with screen sharing
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Microphone Selection */}
+            {(audioSource === 'microphone' || audioSource === 'both') && audioDevices.length > 0 && (
+              <div className="mt-3">
+                <label className="text-xs font-medium text-blue-800 block mb-1">
+                  🎤 Microphone Device:
+                </label>
+                <select
+                  value={selectedMicrophoneId || ''}
+                  onChange={(e) => setSelectedMicrophoneId(e.target.value || null)}
+                  className="w-full text-xs border border-blue-300 rounded px-2 py-1 bg-white text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {audioDevices.map((device) => (
+                    <option key={device.deviceId} value={device.deviceId}>
+                      {device.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-blue-600 mt-1">
+                  {selectedMicrophoneId ? '✅ Custom microphone selected' : '⚠️ Using system default microphone'}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
