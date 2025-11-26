@@ -233,7 +233,8 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
       const state = get();
       const result = await speechToTextService.transcribeAudioFile(
         audioBlob,
-        state.transcriptionLanguage
+        state.transcriptionLanguage,
+        state.audioSource
       );
 
       set({

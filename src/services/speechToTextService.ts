@@ -26,17 +26,19 @@ class SpeechToTextService {
    */
   async transcribeAudioFile(
     audioBlob: Blob,
-    language: string = 'id-ID'
+    language: string = 'id-ID',
+    audioSource?: 'microphone' | 'system' | 'both'
   ): Promise<TranscriptionResult> {
     try {
       console.log('🎙️ Starting audio file transcription...');
       console.log('🎙️ Audio blob size:', audioBlob.size);
       console.log('🎙️ Audio blob type:', audioBlob.type);
       console.log('🎙️ Target language:', language);
+      console.log('🎙️ Audio source:', audioSource || 'unknown');
 
       // Try multiple approaches
       const approaches = [
-        () => this.transcribeWithDirectGemini(audioBlob, language),
+        () => this.transcribeWithDirectGemini(audioBlob, language, audioSource),
         () => this.transcribeWithWhisperApi(audioBlob, language),
         () => this.transcribeWithAudioContext(audioBlob, language)
       ];
@@ -68,15 +70,24 @@ class SpeechToTextService {
 
       // Provide specific troubleshooting tips
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      // Customize troubleshooting tips based on audio source
+      const sourceSpecificTips = audioSource === 'system' ? `
+6. 🎵 System Audio: Ensure audio was playing during recording
+7. 📺 Share Audio: Check "Share audio" was selected in screen sharing
+8. 🔊 System Volume: Make sure system audio volume is audible
+` : `
+6. 🎙️ Microphone: Verify your microphone is working properly
+`;
+
       throw new Error(`
 Transcription failed. Please try the following:
 
-1. 🎤 Check audio quality: Ensure you spoke clearly and close to the microphone
+1. 🎤 Check audio quality: Ensure clear speech recording
 2. 🔊 Volume check: Make sure the audio has sufficient volume
-3. 🎯 Language match: Ensure you selected the correct language (Indonesian/English)
-4. 🎙️ Microphone: Verify your microphone is working properly
-5. ⏱️ Duration: Record at least 10-15 seconds of speech
-
+3. 🎯 Language match: Ensure you selected the correct language
+4. ⏱️ Duration: Record at least 10-15 seconds of speech
+${sourceSpecificTips}
 Technical error: ${errorMessage}
       `.trim());
     }
@@ -87,9 +98,11 @@ Technical error: ${errorMessage}
    */
   private async transcribeWithDirectGemini(
     audioBlob: Blob,
-    language: string
+    language: string,
+    audioSource?: 'microphone' | 'system' | 'both'
   ): Promise<TranscriptionResult> {
     console.log('🤖 Attempting direct Gemini transcription...');
+    console.log('🤖 Audio source for transcription:', audioSource);
 
     const audioBase64 = await this.blobToBase64(audioBlob);
     const languageName = language === 'id-ID' ? 'Indonesian' : 'English';
@@ -107,15 +120,35 @@ AUDIO DETAILS:
 - File Type: WebM audio recording
 - File Size: ${audioBlob.size} bytes (${(audioBlob.size / 1024 / 1024).toFixed(2)} MB)
 - Target Language: ${languageName}
+- Audio Source: ${audioSource || 'unknown'} (${audioSource === 'system' ? 'System audio capture' : audioSource === 'both' ? 'Combined microphone + system audio' : 'Microphone recording'})
 - Source: Chrome extension voice recording
+
+${audioSource === 'system' ? `
+IMPORTANT - SYSTEM AUDIO:
+This recording captures system audio (music, videos, application sounds, system notifications, etc.).
+The speech may be from videos, online meetings, system notifications, or any audio playing on the computer.
+Listen carefully for any spoken content, dialogue, or speech in the system audio.
+` : audioSource === 'both' ? `
+IMPORTANT - COMBINED AUDIO:
+This recording contains both microphone input and system audio simultaneously.
+You may hear spoken content from the microphone overlaid with system sounds.
+Focus on transcribing the human speech content.
+` : ''}
 
 CRITICAL INSTRUCTIONS:
 1. The audio data is encoded in base64 and represents a WebM audio file
-2. This audio contains human speech that needs to be transcribed
-3. Listen for and transcribe ALL spoken words in ${languageName}
-4. Include proper punctuation, capitalization, and sentence structure
-5. Remove obvious filler words (um, uh, like) but keep the core meaning
-6. If multiple people are speaking, indicate speaker changes
+2. This audio contains human speech that needs to be transcribed EXACTLY as spoken
+3. Transcribe ALL spoken words in ${languageName} EXACTLY as they appear in the audio
+4. DO NOT modify, paraphrase, summarize, or "clean up" the transcription
+5. DO NOT remove filler words (um, uh, like, you know) - transcribe them exactly
+6. DO NOT change punctuation or capitalization unless you are 100% certain from the audio
+7. DO NOT combine or merge similar sentences - keep the exact flow
+8. DO NOT correct grammar or spelling errors unless clearly spoken correctly
+9. Include ALL hesitation words, false starts, and natural speech patterns
+10. If multiple people are speaking, transcribe each speaker exactly as they speak
+11. ${audioSource === 'system' ? 'Transcribe ALL speech content from videos, meetings, notifications, or any spoken audio in the system exactly as heard' : 'Transcribe ALL spoken content exactly as heard in the recording'}
+
+IMPORTANT: Your task is to be a faithful transcriber, NOT an editor or summarizer. The user wants 100% accurate transcription, not an improved version.
 
 IMPORTANT: This is NOT text data - this is actual audio data that needs to be "listened to" and transcribed.
 

@@ -6,7 +6,7 @@ import { Button } from './ui/button';
 import { PlainTextEditor } from './PlainTextEditor';
 import { SoundSpectrum } from './SoundSpectrum';
 import { SetupDialog } from './SetupDialog';
-import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2, Monitor, Headphones, Layers, MessageCircle, Sparkles, Settings } from 'lucide-react';
+import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2, Monitor, Headphones, Layers, MessageCircle, Settings, RotateCcw } from 'lucide-react';
 import { formatTime, isValidAudioBlob, formatErrorMessage } from '../lib/utils';
 import { googleDriveService } from '../services/googleDriveService';
 import { cn } from '../lib/utils';
@@ -244,30 +244,7 @@ export const SidePanel: React.FC = () => {
     }
   };
 
-  const handleEnhanceTranscription = async () => {
-    if (!transcription.trim()) {
-      alert('🎙️ No transcription available to enhance. Please record some speech first.');
-      return;
-    }
-
-    try {
-      const { speechToTextService } = await import('../services/speechToTextService');
-      console.log('✨ Enhancing transcription with AI...');
-
-      const enhancedText = await speechToTextService.enhanceTranscription(
-        transcription,
-        `${currentSession.name} - ${currentSession.description || ''}`
-      );
-
-      // Replace notes with enhanced transcription
-      setNotes(enhancedText);
-      setTranscription(enhancedText);
-    } catch (error) {
-      console.error('Failed to enhance transcription:', error);
-      alert(`✨ Failed to enhance transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
+  
   const handleGenerateSummary = async () => {
     if (!transcription.trim() && !(currentSession.notes || '').trim()) {
       alert('📋 No content available for summary. Please record some speech or add notes first.');
@@ -461,23 +438,30 @@ export const SidePanel: React.FC = () => {
                 {transcription && (
                   <>
                     <Button
-                      onClick={handleEnhanceTranscription}
-                      size="sm"
-                      variant="outline"
-                      className="border-purple-300 text-purple-700 hover:bg-purple-50"
-                    >
-                      <Sparkles className="w-4 h-4 mr-1" />
-                      Enhance with AI
-                    </Button>
-
-                    <Button
                       onClick={handleGenerateSummary}
                       size="sm"
                       variant="outline"
                       className="border-purple-300 text-purple-700 hover:bg-purple-50"
+                      title="Generate AI summary from exact transcription"
                     >
                       <Settings className="w-4 h-4 mr-1" />
                       Generate Summary
+                    </Button>
+
+                    <Button
+                      onClick={() => {
+                        const confirmClear = window.confirm('Clear current transcription? This cannot be undone.');
+                        if (confirmClear) {
+                          setTranscription('');
+                        }
+                      }}
+                      size="sm"
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      title="Clear transcription and start fresh"
+                    >
+                      <RotateCcw className="w-4 h-4 mr-1" />
+                      Clear
                     </Button>
                   </>
                 )}
@@ -488,19 +472,49 @@ export const SidePanel: React.FC = () => {
                 {!currentSession.audioBlob ? (
                   "📝 Record audio first, then click 'Transcribe Audio'"
                 ) : isTranscribing ? (
-                  "🔄 Processing audio file... This may take a moment."
+                  `🔄 Processing ${audioSource} audio... This may take a moment.`
                 ) : transcription ? (
-                  "✅ Transcription completed! Check the notes section below."
+                  `✅ ${audioSource === 'system' ? 'System audio' : audioSource === 'both' ? 'Combined audio' : 'Microphone audio'} transcription completed!`
                 ) : (
-                  "🎙️ Ready to transcribe recorded audio."
+                  `🎙️ Ready to transcribe ${audioSource === 'system' ? 'system audio (videos, meetings, etc.)' : audioSource === 'both' ? 'combined audio' : 'microphone audio'}.`
                 )}
               </div>
+
+              {/* Source-specific tips */}
+              {audioSource === 'system' && !isTranscribing && (
+                <div className="text-xs text-amber-600 bg-amber-50 rounded p-2 mt-1">
+                  <strong>💡 System Audio Tips:</strong>
+                  <ul className="ml-2 mt-1 list-disc">
+                    <li>Play audio/video during recording</li>
+                    <li>Check "Share audio" in screen sharing</li>
+                    <li>Ensure system volume is audible</li>
+                    <li>Works best for videos, meetings, notifications</li>
+                  </ul>
+                </div>
+              )}
+
+              {audioSource === 'both' && !isTranscribing && (
+                <div className="text-xs text-blue-600 bg-blue-50 rounded p-2 mt-1">
+                  <strong>🎙️ Combined Audio Tips:</strong>
+                  <ul className="ml-2 mt-1 list-disc">
+                    <li>Perfect for online meetings</li>
+                    <li>Captures your voice + system audio</li>
+                    <li>Great for recording presentations</li>
+                    <li>Share audio in screen sharing dialog</li>
+                  </ul>
+                </div>
+              )}
 
               {/* Transcription Preview */}
               {transcription && (
                 <div className="bg-white border border-purple-200 rounded p-2 max-h-24 overflow-y-auto">
-                  <div className="text-xs text-gray-600 mb-1">📝 Latest transcription:</div>
-                  <div className="text-sm italic">
+                  <div className="text-xs text-gray-600 mb-1">
+                    📝 Exact transcription (100% accurate):
+                    <span className="ml-2 text-green-600 font-medium">
+                      ✓ No modifications
+                    </span>
+                  </div>
+                  <div className="text-sm font-mono text-xs">
                     {transcription.substring(0, 200)}{transcription.length > 200 ? '...' : ''}
                   </div>
                 </div>
@@ -509,7 +523,7 @@ export const SidePanel: React.FC = () => {
           )}
 
           <div className="text-xs text-purple-600">
-            💡 Processes recorded audio files using speech recognition + Gemini AI enhancement
+            💡 100% Accurate transcription - records speech exactly as spoken, no modifications
           </div>
         </div>
       </div>

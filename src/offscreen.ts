@@ -307,13 +307,29 @@ async function startRecording(
       console.log(`Microphone tracks: ${tracks.length}`);
     }
 
-    // Create combined stream
+    // Create combined stream with track metadata
     combinedStream = new MediaStream(tracks);
+
+    // Log track information for debugging
+    console.log(`🎤 Total audio tracks combined: ${tracks.length}`);
+    tracks.forEach((track, index) => {
+      console.log(`🎤 Track ${index + 1}:`, {
+        id: track.id,
+        kind: track.kind,
+        label: track.label || 'Unknown device',
+        enabled: track.enabled,
+        muted: track.muted,
+        settings: track.getSettings()
+      });
+    });
 
     const mimeType = getSupportedMimeType();
     if (!mimeType) {
       throw new Error('No supported audio format found');
     }
+
+    console.log(`🎤 Using MediaRecorder with mimeType: ${mimeType}`);
+    console.log(`🎤 Audio source recording: ${audioSource}`);
 
     mediaRecorder = new MediaRecorder(combinedStream, {
       mimeType
