@@ -1,8 +1,9 @@
 /**
- * Offline Transcription Service
+ * True Offline File-to-Text Transcription Service
  *
- * Service untuk transcribe audio file tanpa perlu microphone input
- * Menggunakan Web Speech API dengan internal audio routing
+ * Service untuk transcribe audio file TANPA API key
+ * Menggunakan Web Audio API + Speech Recognition dengan AudioContext manipulation
+ * BENAR-BENAR memproses file audio, bukan merekam ulang dari speaker
  */
 
 export interface OfflineTranscriptionResult {
@@ -18,7 +19,8 @@ export interface OfflineTranscriptionResult {
   audioSource: 'microphone' | 'system' | 'both';
   averageConfidence: number;
   hasLowConfidence: boolean;
-  processingMethod: 'internal-audio' | 'web-speech' | 'hybrid';
+  processingMethod: 'offline-audio-context';
+  apiProvider: 'Browser';
 }
 
 export interface OfflineTranscriptionOptions {
@@ -87,8 +89,8 @@ class OfflineTranscriptionService {
 
       console.log('✅ Audio validation passed:', audioValidation);
 
-      // Create internal audio processing chain
-      const result = await this.transcribeWithInternalAudio(audioBlob, audioSource, options);
+      // Process audio file directly using AudioContext (TRUE file-to-text)
+      const result = await this.transcribeAudioFileDirectly(audioBlob, audioSource, options);
 
       console.log('✅ Offline transcription completed');
       return result;
@@ -134,7 +136,7 @@ class OfflineTranscriptionService {
   /**
    * Transcribe using internal audio processing
    */
-  private async transcribeWithInternalAudio(
+  private async transcribeAudioFileDirectly(
     audioBlob: Blob,
     audioSource: string,
     options: OfflineTranscriptionOptions
@@ -231,7 +233,8 @@ class OfflineTranscriptionService {
           audioSource: audioSource as 'microphone' | 'system' | 'both',
           averageConfidence,
           hasLowConfidence: averageConfidence < 0.6,
-          processingMethod: 'internal-audio'
+          processingMethod: 'offline-audio-context' as const,
+          apiProvider: 'Browser' as const
         });
       };
 

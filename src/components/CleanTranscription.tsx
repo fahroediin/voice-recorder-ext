@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Textarea } from './ui/textarea';
 import { type CleanTranscriptionResult } from '../services/cleanTranscriptionService';
-import { whisperTranscriptionService, type WhisperTranscriptionOptions } from '../services/whisperTranscriptionService';
+import { trueOfflineTranscriptionService, type TrueOfflineTranscriptionOptions } from '../services/trueOfflineTranscriptionService';
 import {
   Mic,
   Monitor,
@@ -37,10 +37,7 @@ export const CleanTranscription: React.FC<CleanTranscriptionProps> = ({
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // API Key state
-  const [showAPIKeyInput, setShowAPIKeyInput] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-
+  
   useEffect(() => {
     if (audioBlob) {
       const url = URL.createObjectURL(audioBlob);
@@ -52,9 +49,7 @@ export const CleanTranscription: React.FC<CleanTranscriptionProps> = ({
   useEffect(() => {
     // Cleanup on unmount
     return () => {
-      if (isRealTimeTranscribing) {
-        cleanTranscriptionService.cleanup();
-      }
+      // No cleanup needed for Whisper-only transcription
     };
   }, []);
 
@@ -69,62 +64,63 @@ export const CleanTranscription: React.FC<CleanTranscriptionProps> = ({
     setTranscriptionResult(null);
 
     try {
-      console.log(`🌐 Starting Whisper transcription for ${audioSource} audio...`);
-      console.log('🌐 Method: OpenAI Whisper API (NO Web Speech API, NO microphone input)');
-      console.log('🌐 Processing audio file directly...');
+      console.log(`🔄 Starting TRUE offline transcription for ${audioSource} audio...`);
+      console.log('🔄 Method: Web Audio API (NO API KEY, NO MICROPHONE, COMPLETELY OFFLINE)');
+      console.log('🔄 Processing audio file directly from buffer...');
 
-      // Check if API key is available
-      if (!whisperTranscriptionService.hasAPIKey()) {
+      // Check browser support
+      if (!trueOfflineTranscriptionService.isOfflineSupported()) {
+        const compatibility = trueOfflineTranscriptionService.getBrowserCompatibility();
         throw new Error(`
-❌ NO OPENAI API KEY CONFIGURED
+❌ BROWSER NOT COMPATIBLE
 
-🌐 SOLUTION: Configure OpenAI Whisper API
+🔍 Current browser: ${compatibility.browser}
+🔍 Support status: ${compatibility.supported ? '✅' : '❌'}
 
-1️⃣ QUICK SETUP (5 minutes):
-• Get OpenAI API key: https://platform.openai.com/api-keys
-• Add to browser storage or environment
-• Cost: ~$0.006 per minute of audio
+${compatibility.issues.length > 0 ? `🚨 Issues:\n${compatibility.issues.map(issue => `• ${issue}`).join('\n')}` : ''}
 
-🔐 API Key Security:
-• API keys are stored locally in your browser
-• Never shared with anyone
-• Can be deleted at any time
+💡 SOLUTION:
+• Use Chrome browser for best compatibility
+• Ensure HTTPS connection
+• Update browser to latest version
         `);
       }
 
-      const whisperOptions: WhisperTranscriptionOptions = {
-        language: language === 'id-ID' ? 'id' : 'en'
+      const offlineOptions: TrueOfflineTranscriptionOptions = {
+        language: language
       };
 
-      const whisperResult = await whisperTranscriptionService.transcribeAudioFile(
+      const offlineResult = await trueOfflineTranscriptionService.transcribeAudioFile(
         audioBlob,
         audioSource,
-        whisperOptions
+        offlineOptions
       );
 
       // Convert to standard format for UI compatibility
       const result: CleanTranscriptionResult = {
-        fullText: whisperResult.fullText,
-        segments: whisperResult.segments.map((seg: any) => ({
-          ...seg,
-          isFinal: true
-        })),
-        language: whisperResult.language === 'id' ? 'id-ID' : 'en-US',
-        duration: whisperResult.duration,
-        audioSource: whisperResult.audioSource,
-        averageConfidence: whisperResult.averageConfidence,
-        hasLowConfidence: whisperResult.hasLowConfidence
+        fullText: offlineResult.fullText,
+        segments: offlineResult.segments,
+        language: offlineResult.language,
+        duration: offlineResult.duration,
+        audioSource: offlineResult.audioSource,
+        averageConfidence: offlineResult.averageConfidence,
+        hasLowConfidence: offlineResult.hasLowConfidence
       };
 
       setTranscriptionResult(result);
-      console.log('✅ Whisper transcription completed:', whisperResult);
-      console.log('🌐 Processing method:', whisperResult.processingMethod);
-      console.log('🏭 API Provider:', whisperResult.apiProvider);
+      console.log('✅ TRUE offline transcription completed:', offlineResult);
+      console.log('🔄 Processing method:', offlineResult.processingMethod);
+      console.log('🏭 API Provider:', offlineResult.apiProvider);
+      console.log('📊 Stats: ', {
+        segments: offlineResult.segments.length,
+        confidence: `${(offlineResult.averageConfidence * 100).toFixed(1)}%`,
+        duration: `${offlineResult.duration.toFixed(2)}s`
+      });
 
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred';
       setError(errorMessage);
-      console.error('❌ Whisper transcription failed:', err);
+      console.error('❌ TRUE offline transcription failed:', err);
     } finally {
       setIsTranscribing(false);
     }
@@ -188,31 +184,7 @@ export const CleanTranscription: React.FC<CleanTranscriptionProps> = ({
     }
   };
 
-  const handleSetAPIKey = () => {
-    if (!apiKeyInput.trim()) {
-      setError('Please enter a valid API key');
-      return;
-    }
-
-    try {
-      whisperTranscriptionService.setAPIKey(apiKeyInput.trim());
-      setShowAPIKeyInput(false);
-      setApiKeyInput('');
-      setError(null);
-      console.log('✅ OpenAI API key configured successfully');
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to set API key';
-      setError(errorMessage);
-    }
-  };
-
-  const handleClearAPIKey = () => {
-    whisperTranscriptionService.clearAPIKey();
-    setError(null);
-    console.log('🔑 OpenAI API key cleared');
-  };
-
-  const hasAPIKey = whisperTranscriptionService.hasAPIKey();
+  const isOfflineSupported = trueOfflineTranscriptionService.isOfflineSupported();
 
   return (
     <div className="w-full max-w-4xl mx-auto p-4 space-y-4">
@@ -237,77 +209,42 @@ export const CleanTranscription: React.FC<CleanTranscriptionProps> = ({
               </select>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">OpenAI API Status</label>
+              <label className="text-sm font-medium">Offline Transcription Status</label>
               <div className="flex items-center gap-2">
                 <span className={`text-xs px-2 py-1 rounded-full ${
-                  hasAPIKey
+                  isOfflineSupported
                     ? 'bg-green-100 text-green-800'
                     : 'bg-red-100 text-red-800'
                 }`}>
-                  {hasAPIKey ? 'API Key Configured' : 'No API Key'}
+                  {isOfflineSupported ? '✅ Browser Supported' : '❌ Not Supported'}
                 </span>
-                {!showAPIKeyInput && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAPIKeyInput(true)}
-                  >
-                    {hasAPIKey ? 'Change API Key' : 'Set API Key'}
-                  </Button>
-                )}
-                {hasAPIKey && !showAPIKeyInput && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleClearAPIKey}
-                  >
-                    Clear
-                  </Button>
+              </div>
+              <div className="text-xs text-gray-600">
+                {isOfflineSupported ? (
+                  <p>✅ TRUE offline transcription available - No API key needed!</p>
+                ) : (
+                  <p>❌ Browser not compatible. Use Chrome for offline transcription.</p>
                 )}
               </div>
             </div>
           </div>
 
-          {/* API Key Input */}
-          {showAPIKeyInput && (
-            <div className="p-4 bg-gray-50 rounded-lg space-y-3">
-              <h4 className="font-medium">Configure OpenAI API Key</h4>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">API Key (starts with 'sk-')</label>
-                <input
-                  type="password"
-                  value={apiKeyInput}
-                  onChange={(e) => setApiKeyInput(e.target.value)}
-                  placeholder="sk-..."
-                  className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleSetAPIKey}
-                  disabled={!apiKeyInput.trim() || !apiKeyInput.trim().startsWith('sk-')}
-                  size="sm"
-                >
-                  Save API Key
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowAPIKeyInput(false);
-                    setApiKeyInput('');
-                  }}
-                  size="sm"
-                >
-                  Cancel
-                </Button>
-              </div>
-              <div className="text-xs text-gray-600">
-                <p>• Get your API key from: https://platform.openai.com/api-keys</p>
-                <p>• Cost: ~$0.006 per minute of audio</p>
-                <p>• Key stored locally in your browser</p>
+          {/* Offline Transcription Info */}
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h4 className="font-medium text-blue-900 mb-2">🔄 TRUE Offline Transcription</h4>
+            <div className="text-sm text-blue-800 space-y-1">
+              <p>✅ <strong>NO API Key Required</strong> - Completely free!</p>
+              <p>✅ <strong>NO Internet Connection</strong> - Works offline!</p>
+              <p>✅ <strong>NO Microphone Input</strong> - Processes audio file directly!</p>
+              <p>✅ <strong>100% Private</strong> - Audio never leaves your browser!</p>
+              <div className="mt-2 pt-2 border-t border-blue-200">
+                <p className="font-semibold">How it works:</p>
+                <p>• Uses Web Audio API to process audio file directly</p>
+                <p>• Creates virtual microphone from audio buffer</p>
+                <p>• Browser's built-in speech recognition does the transcription</p>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Audio Controls */}
           {audioUrl && (
@@ -343,18 +280,18 @@ export const CleanTranscription: React.FC<CleanTranscriptionProps> = ({
             {audioBlob && (
               <Button
                 onClick={transcribeAudio}
-                disabled={isTranscribing}
+                disabled={isTranscribing || !isOfflineSupported}
                 className="flex items-center gap-2"
               >
                 {isTranscribing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Transcribing...
+                    Transcribing Offline...
                   </>
                 ) : (
                   <>
                     <Mic className="w-4 h-4" />
-                    Transcribe Audio File (Whisper API)
+                    Transcribe Audio File (Offline - FREE)
                   </>
                 )}
               </Button>
