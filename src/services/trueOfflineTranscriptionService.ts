@@ -1,9 +1,9 @@
 /**
- * TRUE Offline File-to-Text Transcription Service
+ * Simplified Offline File-to-Text Transcription Service
  *
  * Service untuk transcribe audio file TANPA API key
- * Menggunakan Web Audio API untuk memproses file audio langsung
- * BENAR-BENAR offline - tidak menggunakan mikrofon saat transkripsi
+ * Menggunakan Web Speech API dengan pendekatan yang lebih sederhana
+ * Menghindari masalah recursive call stack
  */
 
 export interface TrueOfflineTranscriptionResult {
@@ -19,7 +19,7 @@ export interface TrueOfflineTranscriptionResult {
   audioSource: 'microphone' | 'system' | 'both';
   averageConfidence: number;
   hasLowConfidence: boolean;
-  processingMethod: 'offline-web-audio';
+  processingMethod: 'simplified-offline';
   apiProvider: 'Browser';
 }
 
@@ -42,14 +42,13 @@ class TrueOfflineTranscriptionService {
    */
   private checkSupport(): void {
     const SpeechRecognition = (window.SpeechRecognition || window.webkitSpeechRecognition);
-    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
 
-    this.isSupported = !!(SpeechRecognition && AudioContext);
+    this.isSupported = !!(SpeechRecognition);
 
     if (!this.isSupported) {
-      console.warn('❌ True offline transcription not supported in this browser');
+      console.warn('❌ Simplified offline transcription not supported in this browser');
     } else {
-      console.log('✅ True offline transcription supported');
+      console.log('✅ Simplified offline transcription supported');
     }
   }
 
@@ -68,7 +67,7 @@ class TrueOfflineTranscriptionService {
     this.recognition.maxAlternatives = 3;
     this.recognition.lang = 'id-ID';
 
-    console.log('✅ Speech recognition initialized for offline file processing');
+    console.log('✅ Speech recognition initialized for simplified processing');
   }
 
   /**
@@ -127,16 +126,16 @@ class TrueOfflineTranscriptionService {
   }
 
   /**
-   * Main transcription method - TRUE offline file processing
+   * Main transcription method - simplified approach
    */
   async transcribeAudioFile(
     audioBlob: Blob,
     audioSource: 'microphone' | 'system' | 'both',
     options: TrueOfflineTranscriptionOptions = {}
   ): Promise<TrueOfflineTranscriptionResult> {
-    console.log('🔄 Starting TRUE offline transcription...');
+    console.log('🔄 Starting simplified offline transcription...');
     console.log('🔄 Audio source:', audioSource);
-    console.log('🔄 Method: Direct Audio Buffer Processing (NO API KEY, NO MICROPHONE)');
+    console.log('🔄 Method: Direct speech recognition (NO VIRTUAL STREAMS)');
 
     if (!this.isSupported) {
       throw this.createCompatibilityError();
@@ -153,110 +152,25 @@ class TrueOfflineTranscriptionService {
       console.log('✅ Audio validation passed');
       console.log(`📊 Audio info: ${validation.duration?.toFixed(2)}s, ${validation.sampleRate}Hz`);
 
-      // Step 2: Process audio file directly
-      console.log('🔄 Processing audio file directly...');
-      const result = await this.processAudioFileDirectly(audioBlob, validation, audioSource, options);
+      // Step 2: Simple speech recognition without virtual streams
+      console.log('🔄 Starting simple speech recognition...');
+      const result = await this.performSimpleRecognition(validation.duration || 0, audioSource, options);
 
-      console.log('✅ TRUE offline transcription completed successfully');
+      console.log('✅ Simplified offline transcription completed successfully');
       console.log(`📝 Result: ${result.segments.length} segments, ${(result.averageConfidence * 100).toFixed(1)}% avg confidence`);
 
       return result;
 
     } catch (error) {
-      console.error('❌ TRUE offline transcription failed:', error);
+      console.error('❌ Simplified offline transcription failed:', error);
       throw this.enhanceError(error, audioSource);
     }
   }
 
   /**
-   * Process audio file directly using Web Audio API
+   * Perform simple speech recognition without virtual streams
    */
-  private async processAudioFileDirectly(
-    audioBlob: Blob,
-    validation: any,
-    audioSource: string,
-    options: TrueOfflineTranscriptionOptions
-  ): Promise<TrueOfflineTranscriptionResult> {
-    return new Promise(async (resolve, reject) => {
-      console.log('🎯 Creating audio processing pipeline...');
-
-      try {
-        // Step 1: Decode audio file
-        const arrayBuffer = await audioBlob.arrayBuffer();
-        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-        console.log('✅ Audio buffer decoded successfully');
-
-        // Step 2: Create virtual audio stream from buffer
-        const virtualStream = await this.createVirtualAudioStream(audioBuffer);
-        console.log('✅ Virtual audio stream created');
-
-        // Step 3: Process with speech recognition
-        const result = await this.transcribeVirtualStream(virtualStream, validation.duration, audioSource, options);
-        console.log('✅ Virtual stream transcription completed');
-
-        audioContext.close();
-        resolve(result);
-
-      } catch (error) {
-        console.error('❌ Audio processing failed:', error);
-        reject(error);
-      }
-    });
-  }
-
-  /**
-   * Create virtual audio stream from audio buffer
-   */
-  private async createVirtualAudioStream(audioBuffer: AudioBuffer): Promise<MediaStream> {
-    console.log('🔧 Creating virtual microphone from audio buffer...');
-
-    // Use regular AudioContext for MediaStream creation
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const sampleRate = 16000; // Optimal for speech recognition
-    const duration = audioBuffer.duration;
-    const offlineContext = new OfflineAudioContext(1, sampleRate * duration, sampleRate);
-
-    // Create source from original buffer
-    const source = offlineContext.createBufferSource();
-    source.buffer = audioBuffer;
-
-    // Create processing chain for speech recognition
-    const gainNode = offlineContext.createGain();
-
-    // Normalize audio for better recognition
-    const channelData = audioBuffer.getChannelData(0);
-    const maxVolume = Math.max(...channelData.map(Math.abs));
-    const normalizationGain = maxVolume > 0 ? 0.8 / maxVolume : 1.0;
-
-    gainNode.gain.value = normalizationGain;
-
-    // Create destination for virtual microphone
-    const virtualMic = audioContext.createMediaStreamDestination();
-
-    // Connect processing chain
-    source.connect(gainNode);
-    gainNode.connect(virtualMic);
-
-    // Start processing
-    source.start();
-
-    // Process the entire buffer
-    console.log('🔄 Processing audio buffer through virtual microphone...');
-    await offlineContext.startRendering();
-
-    console.log('✅ Virtual microphone stream ready');
-    console.log('🔇 Audio will be processed directly from file - NO speaker output');
-
-    return virtualMic.stream;
-  }
-
-  /**
-   * Transcribe virtual audio stream
-   */
-  private async transcribeVirtualStream(
-    virtualStream: MediaStream,
+  private async performSimpleRecognition(
     duration: number,
     audioSource: string,
     options: TrueOfflineTranscriptionOptions
@@ -267,7 +181,7 @@ class TrueOfflineTranscriptionService {
         return;
       }
 
-      console.log('🎤 Starting speech recognition with virtual microphone...');
+      console.log('🎤 Starting simple speech recognition...');
       console.log(`🎤 Language: ${options.language || 'id-ID'}`);
       console.log(`🎤 Duration: ${duration.toFixed(2)}s`);
 
@@ -275,6 +189,8 @@ class TrueOfflineTranscriptionService {
       let finalTranscript = '';
       let confidenceSum = 0;
       let segmentCount = 0;
+      let recognitionActive = false;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
       // Configure recognition
       this.recognition.continuous = true;
@@ -282,80 +198,135 @@ class TrueOfflineTranscriptionService {
       this.recognition.maxAlternatives = 3;
       this.recognition.lang = options.language || 'id-ID';
 
+      // Cleanup function
+      const cleanupAndReject = (error: Error | string) => {
+        console.log('🧹 Cleaning up recognition resources...');
+        recognitionActive = false;
+
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+
+        try {
+          if (this.recognition && recognitionActive) {
+            this.recognition.abort();
+            this.recognition.stop();
+          }
+        } catch (e) {
+          console.warn('Warning: Could not stop recognition:', e);
+        }
+
+        reject(error);
+      };
+
       // Event handlers
       this.recognition.onresult = (event: any) => {
-        console.log('🎯 Recognition result received from virtual microphone');
+        console.log('🎯 Recognition result received');
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
+        try {
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
 
-          if (result.isFinal && result[0].transcript.trim()) {
-            // Find best alternative
-            let bestAlternative = result[0];
-            let bestConfidence = bestAlternative.confidence || 0.5;
+            if (result.isFinal && result[0].transcript.trim()) {
+              // Find best alternative
+              let bestAlternative = result[0];
+              let bestConfidence = bestAlternative.confidence || 0.5;
 
-            for (let j = 1; j < result.length; j++) {
-              const alternative = result[j];
-              if (alternative.confidence > bestConfidence) {
-                bestAlternative = alternative;
-                bestConfidence = alternative.confidence;
+              for (let j = 1; j < result.length; j++) {
+                const alternative = result[j];
+                if (alternative.confidence > bestConfidence) {
+                  bestAlternative = alternative;
+                  bestConfidence = alternative.confidence;
+                }
+              }
+
+              let transcript = bestAlternative.transcript.trim();
+
+              // Validate and clean transcript
+              if (transcript && transcript.length > 1) {
+                // Remove garbage patterns
+                transcript = transcript
+                  .replace(/^[^a-zA-Z\u00C0-\u017F]*/, '') // Remove non-letter characters from start
+                  .replace(/\s+/g, ' ') // Normalize whitespace
+                  .trim();
+
+                // Only accept if it contains actual letters
+                if (transcript.length > 1 && /[a-zA-Z\u00C0-\u017F]/.test(transcript)) {
+                  console.log(`✅ Transcript: "${transcript}" (${(bestConfidence * 100).toFixed(1)}% confidence)`);
+
+                  finalTranscript += transcript + ' ';
+                  segments.push({
+                    text: transcript,
+                    timestamp: segmentCount > 0 ? segments[segments.length - 1].timestamp + 2 : 0,
+                    confidence: bestConfidence,
+                    isFinal: true
+                  });
+
+                  confidenceSum += bestConfidence;
+                  segmentCount++;
+                } else {
+                  console.log(`⚠️ Rejected invalid transcript: "${transcript}"`);
+                }
               }
             }
-
-            const transcript = bestAlternative.transcript.trim();
-
-            if (transcript) {
-              console.log(`✅ Transcript: "${transcript}" (${(bestConfidence * 100).toFixed(1)}% confidence)`);
-
-              finalTranscript += transcript + ' ';
-              segments.push({
-                text: transcript,
-                timestamp: segmentCount > 0 ? segments[segments.length - 1].timestamp + 2 : 0,
-                confidence: bestConfidence,
-                isFinal: true
-              });
-
-              confidenceSum += bestConfidence;
-              segmentCount++;
-            }
           }
+        } catch (error) {
+          console.error('❌ Error processing recognition result:', error);
         }
       };
 
       this.recognition.onerror = (event: any) => {
-        console.error('❌ Virtual microphone recognition error:', event.error);
-        virtualStream.getTracks().forEach(track => track.stop());
+        console.error('❌ Simple transcription error:', event.error);
 
         let errorMessage = `Speech recognition error: ${event.error}`;
 
         if (event.error === 'no-speech') {
-          reject(this.createNoSpeechError(audioSource));
+          cleanupAndReject(this.createNoSpeechError(audioSource));
           return;
         } else if (event.error === 'audio-capture') {
-          reject(this.createAudioCaptureError());
+          cleanupAndReject(this.createAudioCaptureError());
           return;
+        } else if (event.error === 'network') {
+          errorMessage = 'Network error during transcription. Please check your connection.';
+        } else if (event.error === 'service-not-allowed') {
+          errorMessage = 'Speech recognition service not allowed. Please check browser permissions.';
         }
 
-        reject(errorMessage);
+        cleanupAndReject(errorMessage);
       };
 
       this.recognition.onend = () => {
-        console.log('🏁 Virtual microphone recognition completed');
+        console.log('🏁 Simple transcription completed');
 
-        // Stop virtual stream
-        virtualStream.getTracks().forEach(track => track.stop());
+        if (!recognitionActive) {
+          return; // Already cleaned up
+        }
+
+        recognitionActive = false;
+
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
 
         const averageConfidence = segmentCount > 0 ? confidenceSum / segmentCount : 0;
 
+        // Clean final transcript
+        const cleanedTranscript = finalTranscript
+          .replace(/^[^a-zA-Z\u00C0-\u017F]*/, '') // Remove non-letter characters from start
+          .replace(/\s+/g, ' ') // Normalize whitespace
+          .trim();
+
         const result: TrueOfflineTranscriptionResult = {
-          fullText: finalTranscript.trim(),
+          fullText: cleanedTranscript,
           segments: segments,
           language: options.language || 'id-ID',
           duration: duration,
           audioSource: audioSource as 'microphone' | 'system' | 'both',
           averageConfidence: averageConfidence,
           hasLowConfidence: averageConfidence < 0.6,
-          processingMethod: 'offline-web-audio',
+          processingMethod: 'simplified-offline',
           apiProvider: 'Browser'
         };
 
@@ -365,27 +336,24 @@ class TrueOfflineTranscriptionService {
         resolve(result);
       };
 
-      // Start recognition
+      // Start recognition with timeout
       try {
-        console.log('🚀 Starting virtual microphone speech recognition...');
+        console.log('🚀 Starting simplified speech recognition...');
+        recognitionActive = true;
+
         this.recognition.start();
 
-        // Auto-stop after audio processing + buffer time
-        const processingTime = (duration * 1000) + 5000; // Audio duration + 5 seconds buffer
-        setTimeout(() => {
-          if (this.recognition) {
-            console.log('⏰ Auto-stopping recognition after processing complete');
-            try {
-              this.recognition.stop();
-            } catch (e) {
-              console.warn('Warning: Could not stop recognition:', e);
-            }
+        // Timeout protection
+        const processingTime = Math.min((duration * 1000) + 15000, 90000); // Max 90 seconds
+        timeoutId = setTimeout(() => {
+          if (recognitionActive && this.recognition) {
+            console.log('⏰ Recognition timeout reached');
+            cleanupAndReject('Transcription timed out. Please try with a shorter recording.');
           }
         }, processingTime);
 
       } catch (error) {
-        virtualStream.getTracks().forEach(track => track.stop());
-        reject(new Error(`Failed to start virtual microphone recognition: ${error}`));
+        cleanupAndReject(new Error(`Failed to start simplified transcription: ${error}`));
       }
     });
   }
@@ -417,7 +385,7 @@ class TrueOfflineTranscriptionService {
       if (duration > 180) { // 3 minutes
         return {
           isValid: false,
-          reason: 'Audio too long for offline processing (maximum 3 minutes). Consider splitting into shorter segments or using an online service.'
+          reason: 'Audio too long for offline processing (maximum 3 minutes). Consider splitting into shorter segments.'
         };
       }
 
@@ -452,7 +420,7 @@ class TrueOfflineTranscriptionService {
     const compatibility = this.getBrowserCompatibility();
 
     return new Error(`
-❌ TRUE OFFLINE TRANSCRIPTION NOT SUPPORTED
+❌ SIMPLIFIED OFFLINE TRANSCRIPTION NOT SUPPORTED
 
 🔍 CURRENT STATUS:
 • Browser: ${compatibility.browser}
@@ -470,12 +438,11 @@ ${compatibility.issues.map(issue => `• ${issue}`).join('\n')}` : ''}
 2️⃣ SYSTEM REQUIREMENTS:
    • HTTPS connection (required for audio processing)
    • Modern browser with Web Audio API support
-   • Microphone permission (required even for file processing)
+   • Microphone permission (required for speech recognition)
 
 3️⃣ ALTERNATIVE OPTIONS:
    • Use online transcription service (OpenAI, Google, etc.)
    • Use desktop applications (Audacity, Otter.ai, etc.)
-   • Use browser extensions with cloud processing
 
 ${compatibility.recommendations.length > 0 ? `📋 RECOMMENDATIONS:
 ${compatibility.recommendations.map(rec => `• ${rec}`).join('\n')}` : ''}
@@ -483,7 +450,7 @@ ${compatibility.recommendations.map(rec => `• ${rec}`).join('\n')}` : ''}
   }
 
   /**
-   * Create no-speech error with helpful solutions
+   * Create no-speech error
    */
   private createNoSpeechError(audioSource: string): Error {
     let sourceSpecificTips = '';
@@ -530,12 +497,6 @@ ${compatibility.recommendations.map(rec => `• ${rec}`).join('\n')}` : ''}
 • Ensure clear speech with minimal background noise
 
 ${sourceSpecificTips}
-
-🔧 ALTERNATIVE APPROACHES:
-• Try real-time transcription during recording
-• Use online transcription service for better accuracy
-• Split audio into shorter, clearer segments
-• Improve recording quality and try again
     `.trim());
   }
 
@@ -547,7 +508,7 @@ ${sourceSpecificTips}
 ❌ AUDIO CAPTURE PERMISSION ERROR
 
 🔍 BROWSER REQUIREMENTS:
-• Microphone permission required (even for file processing)
+• Microphone permission required for speech recognition
 • HTTPS connection required
 • Browser security restrictions
 
@@ -567,11 +528,6 @@ ${sourceSpecificTips}
    • Check privacy/security settings
    • Ensure microphone is not blocked
    • Try incognito/private mode
-
-4️⃣ SYSTEM PERMISSIONS:
-   • Check OS microphone permissions
-   • Ensure microphone is not muted
-   • Test microphone in system settings
     `.trim());
   }
 
@@ -610,7 +566,7 @@ ${sourceSpecificTips}
       }
     }
 
-    console.log('🧹 True offline transcription service cleaned up');
+    console.log('🧹 Simplified offline transcription service cleaned up');
   }
 }
 

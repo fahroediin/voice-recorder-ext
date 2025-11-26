@@ -123,6 +123,20 @@ export const SidePanel: React.FC = () => {
       console.log('🎤 Starting recording...');
       startRecording();
 
+      // First ensure offscreen document exists
+      console.log('🔧 Ensuring offscreen document exists...');
+      const offscreenResponse = await chrome.runtime.sendMessage({
+        type: 'OPEN_OFFSCREEN'
+      });
+
+      if (!offscreenResponse?.success) {
+        throw new Error('Failed to create offscreen document: ' + (offscreenResponse?.error || 'Unknown error'));
+      }
+
+      console.log('✅ Offscreen document ready');
+
+      // Now start recording
+      console.log('🎤 Sending START_RECORDING message...');
       const startResponse = await chrome.runtime.sendMessage({
         type: 'START_RECORDING',
         audioSource: audioSource,
@@ -137,7 +151,7 @@ export const SidePanel: React.FC = () => {
       console.log('✅ Recording started successfully');
     } catch (error) {
       console.error('❌ Failed to start recording:', error);
-      alert('❌ Failed to start recording. Please check your browser settings and try again.');
+      alert(`❌ Failed to start recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -187,11 +201,13 @@ export const SidePanel: React.FC = () => {
 
   const performAutoTranscription = async (audioBlob: Blob) => {
     console.log('🔄 Starting automatic transcription for recorded audio...');
+    console.log('🔄 Audio blob size:', audioBlob.size, 'bytes');
+    console.log('🔄 Audio blob type:', audioBlob.type);
 
     // Check if offline transcription is supported
     if (!trueOfflineTranscriptionService.isOfflineSupported()) {
-      console.warn('⚠️ Offline transcription not supported, skipping auto-transcription');
-      setAutoTranscriptionError('Browser not compatible with offline transcription');
+      console.warn('⚠️ Simplified offline transcription not supported, trying alternative method...');
+      setAutoTranscriptionError('Offline transcription not supported in this browser');
       return;
     }
 
@@ -206,6 +222,7 @@ export const SidePanel: React.FC = () => {
         language: transcriptionLanguage
       };
 
+      console.log('🎯 Starting simplified transcription service...');
       const result = await trueOfflineTranscriptionService.transcribeAudioFile(
         audioBlob,
         audioSource,
@@ -219,18 +236,51 @@ export const SidePanel: React.FC = () => {
 
       // Auto-add transcription to notes
       if (result.fullText.trim()) {
-        const currentNotes = currentSession.notes || '';
-        const transcriptionText = `\n\n--- Auto Transcription (${new Date().toLocaleString()}) ---\n${result.fullText}`;
+        // Clean and validate the transcription text
+        const cleanedText = result.fullText
+          .replace(/^[^a-zA-Z\u00C0-\u017F]*/, '') // Remove non-letter characters from start (including accented letters)
+          .replace(/\s+/g, ' ') // Normalize whitespace
+          .trim();
 
-        // Add to session notes
-        setNotes(currentNotes + transcriptionText);
+        if (cleanedText.length > 5) { // Only add if meaningful text
+          const currentNotes = currentSession.notes || '';
+          const transcriptionText = `\n\n--- Auto Transcription (${new Date().toLocaleString()}) ---\nLanguage: ${transcriptionLanguage}\nDuration: ${result.duration.toFixed(1)}s\nConfidence: ${(result.averageConfidence * 100).toFixed(1)}%\n\n${cleanedText}`;
 
-        console.log('✅ Auto-transcription added to session notes');
+          // Add to session notes
+          setNotes(currentNotes + transcriptionText);
+
+          console.log('✅ Auto-transcription added to session notes');
+          console.log('📝 Transcribed text:', cleanedText);
+        } else {
+          console.warn('⚠️ Transcription text too short or invalid:', cleanedText);
+          setAutoTranscriptionError('Transcription resulted in text that was too short or unclear');
+        }
+      } else {
+        console.warn('⚠️ No transcription text generated');
+        setAutoTranscriptionError('No speech was detected in the audio recording');
       }
 
     } catch (error) {
       console.error('❌ Auto-transcription failed:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error('❌ Error type:', typeof error);
+      console.error('❌ Error details:', error instanceof Error ? error.stack : error);
+
+      let errorMessage = 'Unknown error occurred';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+
+        // Provide more helpful error messages
+        if (errorMessage.includes('Maximum call stack size exceeded')) {
+          errorMessage = 'Transcription service encountered an error. Please try recording again.';
+        } else if (errorMessage.includes('not supported')) {
+          errorMessage = 'Browser does not support offline transcription. Try Chrome or Edge browser.';
+        } else if (errorMessage.includes('no-speech')) {
+          errorMessage = 'No speech detected in the recording. Please record with clear speech and check microphone.';
+        } else if (errorMessage.includes('audio-capture')) {
+          errorMessage = 'Microphone permission required. Please allow microphone access and try again.';
+        }
+      }
+
       setAutoTranscriptionError(errorMessage);
     } finally {
       setIsAutoTranscribing(false);

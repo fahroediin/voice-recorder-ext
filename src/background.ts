@@ -6,6 +6,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
 // Handle opening side panel when extension icon is clicked
 chrome.action.onClicked.addListener((tab) => {
+  // Note: sidePanel.open() must be called in response to user gesture
   chrome.sidePanel.open({ tabId: tab.id });
 });
 

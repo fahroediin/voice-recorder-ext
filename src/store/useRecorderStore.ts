@@ -192,25 +192,42 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
 
   loadAudioDevices: async () => {
     try {
+      console.log('🔍 Loading audio devices...');
+
       // First request microphone access to get device labels
-      await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('📋 Requesting temporary microphone access to enumerate devices...');
+      const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       const devices = await navigator.mediaDevices.enumerateDevices();
+      console.log('📋 All devices found:', devices.length);
+
       const audioDevices: AudioDevice[] = devices
         .filter(device => device.kind === 'audioinput')
-        .map(device => ({
-          deviceId: device.deviceId,
-          label: device.label || `Microphone ${device.deviceId.slice(0, 8)}`,
-          kind: device.kind
-        }));
+        .map((device, index) => {
+          const deviceInfo = {
+            deviceId: device.deviceId,
+            label: device.label || `Microphone ${index + 1} (Unknown)`,
+            kind: device.kind as MediaDeviceKind
+          };
+          console.log(`🎤 Audio Device ${index + 1}:`, deviceInfo);
+          return deviceInfo;
+        });
 
       set({ audioDevices });
 
-      // Auto-select the first external microphone if available, otherwise the default
+      // Enhanced external microphone detection
       const externalMic = audioDevices.find(device =>
-        device.label.toLowerCase().includes('external') ||
-        device.label.toLowerCase().includes('usb') ||
-        device.label.toLowerCase().includes('headset')
+        device.label &&
+        (
+          device.label.toLowerCase().includes('external') ||
+          device.label.toLowerCase().includes('usb') ||
+          device.label.toLowerCase().includes('headset') ||
+          device.label.toLowerCase().includes('blue yeti') ||
+          device.label.toLowerCase().includes('rode') ||
+          device.label.toLowerCase().includes('audio-technica') ||
+          device.label.toLowerCase().includes('shure') ||
+          device.label.toLowerCase().includes('microphone') && !device.label.toLowerCase().includes('default')
+        )
       );
 
       const defaultMic = audioDevices.find(device =>
@@ -218,15 +235,20 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
         device.label.toLowerCase().includes('default')
       );
 
+      const selectedMic = externalMic || defaultMic || audioDevices[0];
       set({
-        selectedMicrophoneId: externalMic?.deviceId || defaultMic?.deviceId || audioDevices[0]?.deviceId || null
+        selectedMicrophoneId: selectedMic?.deviceId || null
       });
 
-      console.log('Available audio devices:', audioDevices);
-      console.log('Selected microphone ID:', externalMic?.deviceId || defaultMic?.deviceId || audioDevices[0]?.deviceId || null);
+      console.log(`✅ Found ${audioDevices.length} audio devices:`, audioDevices.map(d => d.label));
+      console.log('🎯 Selected microphone:', selectedMic?.label || 'Default');
+      console.log('🎯 Selected microphone ID:', selectedMic?.deviceId || null);
+
+      // Stop the temporary stream
+      tempStream.getTracks().forEach(track => track.stop());
 
     } catch (error) {
-      console.error('Failed to load audio devices:', error);
+      console.error('❌ Failed to load audio devices:', error);
       set({ audioDevices: [], selectedMicrophoneId: null });
     }
   },

@@ -129,6 +129,26 @@ async function startRecording(
         console.log('🎤 Requesting microphone access...');
         console.log('🎤 Target microphone ID:', microphoneId);
 
+        // First enumerate devices to verify the selected microphone exists
+        if (microphoneId) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const audioInputs = devices.filter(device => device.kind === 'audioinput');
+          const selectedDevice = audioInputs.find(device => device.deviceId === microphoneId);
+
+          console.log('🎤 Available microphones:');
+          audioInputs.forEach((device, index) => {
+            console.log(`  ${index + 1}. ID: ${device.deviceId}, Label: ${device.label || 'Unknown'}`);
+          });
+
+          if (!selectedDevice) {
+            console.warn(`⚠️ Selected microphone ID ${microphoneId} not found in available devices`);
+            console.warn('⚠️ Falling back to default microphone');
+            microphoneId = null;
+          } else {
+            console.log(`✅ Found selected microphone: ${selectedDevice.label || 'Unknown'}`);
+          }
+        }
+
         // Get microphone with specific device ID if provided
         const audioConstraints: MediaStreamConstraints = microphoneId ? {
           audio: {
@@ -157,9 +177,20 @@ async function startRecording(
           const track = audioTracks[0];
           const settings = track.getSettings();
           console.log('🎤 Microphone access granted!');
-          console.log('🎤 Actual device settings:', settings);
-          console.log('🎤 Device ID used:', settings.deviceId);
+          console.log('🎤 Requested device ID:', microphoneId);
+          console.log('🎤 Actual device ID used:', settings.deviceId);
           console.log('🎤 Device label:', track.label || 'Unknown');
+          console.log('🎤 Device group ID:', settings.groupId);
+
+          // Check if the correct device was used
+          if (microphoneId && settings.deviceId !== microphoneId) {
+            console.warn('⚠️ WARNING: Different microphone was used than requested!');
+            console.warn(`⚠️ Requested: ${microphoneId}, Used: ${settings.deviceId}`);
+          } else if (microphoneId) {
+            console.log('✅ Correct external microphone is being used');
+          } else {
+            console.log('ℹ️ Using default microphone');
+          }
         }
 
       } catch (micError) {
