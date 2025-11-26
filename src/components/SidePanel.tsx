@@ -6,10 +6,11 @@ import { Button } from './ui/button';
 import { PlainTextEditor } from './PlainTextEditor';
 import { SoundSpectrum } from './SoundSpectrum';
 import { SetupDialog } from './SetupDialog';
-import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2, Monitor, Headphones, Layers, MessageCircle, Settings, RotateCcw } from 'lucide-react';
+import { Mic, Pause, Play, Square, Upload, Loader2, CheckCircle, Volume2, Monitor, Headphones, Layers, MessageCircle, Settings, RotateCcw, Sparkles } from 'lucide-react';
 import { formatTime, isValidAudioBlob, formatErrorMessage } from '../lib/utils';
 import { googleDriveService } from '../services/googleDriveService';
 import { cn } from '../lib/utils';
+import { CleanTranscription } from './CleanTranscription';
 
 // Base64 to Blob conversion utility
 const base64ToBlob = (base64: string): Promise<Blob> => {
@@ -39,6 +40,7 @@ export const SidePanel: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [saveMessage, setSaveMessage] = useState('');
+  const [showCleanTranscription, setShowCleanTranscription] = useState(false);
 
   const {
     currentSession,
@@ -51,7 +53,6 @@ export const SidePanel: React.FC = () => {
     selectedMicrophoneId,
     isTranscribing,
     transcription,
-    interimTranscription,
     transcriptionEnabled,
     transcriptionLanguage,
     realTimeTranscriptionEnabled,
@@ -72,12 +73,10 @@ export const SidePanel: React.FC = () => {
     setSelectedMicrophoneId,
     transcribeAudio,
     setTranscription,
-    setInterimTranscription,
     setTranscriptionEnabled,
     setTranscriptionLanguage,
     startRealTimeTranscription,
     stopRealTimeTranscription,
-    setRealTimeTranscriptionEnabled,
   } = useRecorderStore();
 
   // Load setup status and audio devices on component mount
@@ -277,13 +276,14 @@ export const SidePanel: React.FC = () => {
   const handleStopRealTimeTranscription = async () => {
     try {
       console.log('⏹️ Stopping real-time transcription...');
-      const result = stopRealTimeTranscription();
+      stopRealTimeTranscription();
 
-      // Add final transcription to notes
-      if (result.fullText.trim()) {
+      // Add final transcription to notes from store state
+      const transcriptionText = transcription.trim();
+      if (transcriptionText) {
         const currentNotes = currentSession.notes || '';
-        const transcriptionText = `\n\n--- Live Transcription (${transcriptionLanguage === 'id-ID' ? 'Indonesian' : 'English'}) ---\n${result.fullText.trim()}`;
-        setNotes(currentNotes + transcriptionText);
+        const formattedText = `\n\n--- Live Transcription (${transcriptionLanguage === 'id-ID' ? 'Indonesian' : 'English'}) ---\n${transcriptionText}`;
+        setNotes(currentNotes + formattedText);
       }
     } catch (error) {
       console.error('Failed to stop real-time transcription:', error);
@@ -480,6 +480,17 @@ export const SidePanel: React.FC = () => {
                       Transcribe Audio
                     </>
                   )}
+                </Button>
+
+                <Button
+                  onClick={() => setShowCleanTranscription(!showCleanTranscription)}
+                  size="sm"
+                  variant="outline"
+                  className="border-green-300 text-green-700 hover:bg-green-50"
+                  title="Use clean transcription without AI enhancement"
+                >
+                  <Sparkles className="w-4 h-4 mr-1" />
+                  Clean Transcribe
                 </Button>
 
                 {transcription && (
@@ -796,6 +807,30 @@ export const SidePanel: React.FC = () => {
                 {saveMessage}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Clean Transcription Modal */}
+        {showCleanTranscription && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="sticky top-0 bg-white border-b p-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Clean Transcription</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowCleanTranscription(false)}
+                >
+                  ×
+                </Button>
+              </div>
+              <div className="p-4">
+                <CleanTranscription
+                  audioBlob={currentSession.audioBlob}
+                  audioSource={audioSource}
+                />
+              </div>
+            </div>
           </div>
         )}
 

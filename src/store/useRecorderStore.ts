@@ -280,7 +280,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
         isTranscribing: true,
         realTimeTranscriptionEnabled: true,
         transcription: '',
-        interimTranscript: ''
+        interimTranscription: ''
       });
 
       // Start polling for real-time updates
@@ -295,7 +295,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
           clearInterval(pollInterval);
           set({
             isTranscribing: false,
-            interimTranscript: ''
+            interimTranscription: ''
           });
         }
       }, 100);
@@ -314,7 +314,7 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
         isTranscribing: false,
         realTimeTranscriptionEnabled: false,
         transcription: result.fullText,
-        interimTranscript: ''
+        interimTranscription: ''
       });
     } catch (error) {
       console.error('Failed to stop real-time transcription:', error);

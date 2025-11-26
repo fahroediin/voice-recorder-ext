@@ -215,83 +215,9 @@ async function startRecording(
       }
 
     } else if (audioSource === 'system') {
-      // Get system audio ONLY - no microphone fallback allowed
-      let systemStream: MediaStream;
-      try {
-        // First try with detailed audio constraints
-        systemStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-            sampleRate: 44100
-          }
-        });
-
-        // Get only audio tracks, ignore video tracks
-        tracks = systemStream.getAudioTracks();
-        console.log(`System audio tracks: ${tracks.length}`);
-
-        if (tracks.length === 0) {
-          console.warn('No audio tracks found with detailed constraints, trying simpler method...');
-          systemStream.getTracks().forEach(track => track.stop());
-
-          // Try alternative method with simple audio constraint
-          try {
-            console.log('Trying alternative method for system audio...');
-            systemStream = await navigator.mediaDevices.getDisplayMedia({
-              video: true,
-              audio: true  // Simple audio constraint
-            });
-
-            tracks = systemStream.getAudioTracks();
-            console.log(`Alternative method - System audio tracks: ${tracks.length}`);
-
-            if (tracks.length === 0) {
-              systemStream.getTracks().forEach(track => track.stop());
-              throw new Error('No system audio found. This happens when:\n• "Share audio" was not checked in the screen sharing dialog\n• No audio is currently playing on your system\n• Your system doesn\'t allow audio sharing\n\nPlease try again with "Share audio" checked while audio is playing.');
-            } else {
-              console.log('✅ System audio access granted via alternative method');
-            }
-          } catch (alternativeError) {
-            console.error('Alternative method failed:', alternativeError);
-            throw new Error('Failed to capture system audio. Please ensure:\n• You check "Share audio" in the screen sharing dialog\n• Audio is playing on your system\n• Your system allows audio sharing\n\nIf this continues to fail, consider using "Microphone" mode instead.');
-          }
-        } else {
-          console.log('✅ System audio access granted');
-        }
-
-        // IMPORTANT: Disable ALL microphone-like processing for system audio
-        tracks.forEach(track => {
-          const constraints = track.getConstraints();
-          console.log('Original track constraints:', constraints);
-
-          // Try to disable echo cancellation, noise suppression, etc for system audio
-          track.applyConstraints({
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false
-          }).catch(e => console.warn('Could not apply constraints to system audio track:', e));
-        });
-
-      } catch (systemError) {
-        console.error('System audio access failed:', systemError);
-
-        if (systemError instanceof Error) {
-          if (systemError.name === 'NotAllowedError') {
-            throw new Error('Screen sharing was cancelled. Please allow screen sharing and check "Share audio".');
-          } else if (systemError.name === 'NotSupportedError') {
-            throw new Error('System audio recording is not supported in this browser or environment.');
-          } else if (systemError.name === 'AbortError') {
-            throw new Error('Screen sharing was cancelled. Please try again.');
-          } else {
-            throw new Error(`Failed to access system audio: ${systemError.message}`);
-          }
-        } else {
-          throw new Error('Failed to access system audio. Please try again.');
-        }
-      }
+      // Enhanced system audio recording with better validation and error handling
+      console.log('🎵 Using enhanced system audio recording...');
+      tracks = await getEnhancedSystemAudio();
 
     } else {
       // Get microphone only
@@ -461,4 +387,234 @@ function blobToBase64(blob: Blob): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+}
+
+/**
+ * Enhanced system audio recording with better validation
+ */
+async function getEnhancedSystemAudio(): Promise<MediaStreamTrack[]> {
+  console.log('🎵 Starting enhanced system audio recording...');
+
+  let systemStream: MediaStream;
+
+  try {
+    // Request system audio with better error handling
+    console.log('📱 Requesting display media with audio...');
+    console.log('💡 IMPORTANT: Make sure to check "Share audio" in the dialog!');
+
+    systemStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+        sampleRate: 44100
+      }
+    });
+
+    console.log('✅ Display media obtained successfully');
+
+    // Get audio tracks only
+    const audioTracks = systemStream.getAudioTracks();
+    console.log(`🎵 System audio tracks found: ${audioTracks.length}`);
+
+    // Detailed logging for each track
+    audioTracks.forEach((track, index) => {
+      const settings = track.getSettings();
+      console.log(`🎵 Track ${index + 1}:`, {
+        id: track.id,
+        label: track.label || 'System Audio',
+        enabled: track.enabled,
+        muted: track.muted,
+        readyState: track.readyState,
+        sampleRate: settings.sampleRate,
+        channelCount: settings.channelCount
+      });
+    });
+
+    if (audioTracks.length === 0) {
+      // Cleanup stream before throwing error
+      systemStream.getTracks().forEach(track => track.stop());
+
+      throw new Error(`
+❌ NO AUDIO TRACKS FOUND - SOLUTION BELOW:
+
+PROBLEM: System audio recording failed because no audio tracks were captured.
+
+REASON: "Share audio" was NOT checked in the screen sharing dialog.
+
+SOLUTION:
+1. Try recording again
+2. In the screen sharing dialog, CHECK the "Share audio" checkbox
+3. Make sure audio is playing on your system (YouTube, Spotify, etc.)
+4. Click "Share" button
+
+STEP-BY-STEP:
+✅ Click "Record" button
+✅ Select "System Audio" mode
+✅ When dialog appears, CHECK "Share audio" box
+✅ Select window/tab to share
+✅ Click "Share" button
+✅ Start playing audio
+
+If this continues to fail, try "Microphone" mode instead.
+      `.trim());
+    }
+
+    // Enhanced validation
+    console.log('🔍 Validating audio capture...');
+    await validateAudioCapture(systemStream);
+
+    // Optimize tracks
+    audioTracks.forEach(track => {
+      console.log(`🎛️ Optimizing track: ${track.label}`);
+      track.enabled = true;
+
+      try {
+        track.applyConstraints({
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          sampleRate: 44100
+        }).catch(e => console.warn('Could not apply constraints:', e));
+      } catch (e) {
+        console.warn('Constraint application failed:', e);
+      }
+    });
+
+    console.log('✅ System audio setup completed successfully');
+    return audioTracks;
+
+  } catch (error) {
+    console.error('❌ System audio access failed:', error);
+
+    if (error instanceof Error) {
+      let message = '';
+
+      switch (error.name) {
+        case 'NotAllowedError':
+          message = `
+❌ PERMISSION DENIED
+
+PROBLEM: You cancelled the screen sharing or didn't allow audio sharing.
+
+SOLUTION:
+✅ Click "Allow" when prompted for screen sharing
+✅ CHECK the "Share audio" checkbox in the dialog
+✅ Try again if you accidentally cancelled
+
+TIPS:
+• Don't press Escape or click outside the dialog
+• Make sure to check "Share audio" box
+• Grant browser audio permissions if asked
+          `.trim();
+          break;
+
+        case 'NotSupportedError':
+          message = `
+❌ BROWSER NOT SUPPORTED
+
+PROBLEM: Your browser doesn't support system audio recording.
+
+SOLUTION:
+✅ Use Chrome or Edge browser
+✅ Update browser to latest version
+✅ Try "Microphone" mode as alternative
+
+COMPATIBLE BROWSERS:
+• Chrome 88+
+• Edge 88+
+• Opera 75+
+          `.trim();
+          break;
+
+        case 'AbortError':
+          message = `
+❌ SCREEN SHARING CANCELLED
+
+PROBLEM: The screen sharing dialog was cancelled.
+
+SOLUTION:
+✅ Try again and keep the dialog open
+✅ Select window/tab/screen to share
+✅ CHECK "Share audio" checkbox
+✅ Click "Share" button
+
+IMPORTANT: Don't forget to check "Share audio"!
+          `.trim();
+          break;
+
+        default:
+          message = `
+❌ SYSTEM AUDIO ERROR: ${error.message}
+
+GENERAL SOLUTIONS:
+✅ Refresh the page and try again
+✅ Restart your browser
+✅ Check browser audio permissions
+✅ Try "Microphone" mode
+✅ Update browser
+          `.trim();
+      }
+
+      throw new Error(message);
+    }
+
+    throw new Error('Unknown error occurred while accessing system audio');
+  }
+}
+
+/**
+ * Validate audio capture
+ */
+async function validateAudioCapture(stream: MediaStream): Promise<void> {
+  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+  const source = audioContext.createMediaStreamSource(stream);
+  const analyser = audioContext.createAnalyser();
+
+  source.connect(analyser);
+  analyser.fftSize = 256;
+
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+
+  let maxLevel = 0;
+  let audioDetected = false;
+  const checks = 20; // Check for 2 seconds
+
+  console.log('🔊 Monitoring audio levels for 2 seconds...');
+
+  for (let i = 0; i < checks; i++) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+    analyser.getByteFrequencyData(dataArray);
+    const average = dataArray.reduce((sum, value) => sum + value, 0) / bufferLength;
+    maxLevel = Math.max(maxLevel, average);
+
+    if (average > 1) {
+      audioDetected = true;
+      console.log(`🔊 Audio detected! Level: ${average.toFixed(2)}`);
+    }
+  }
+
+  source.disconnect();
+  audioContext.close();
+
+  console.log(`🔊 Validation: Max level: ${maxLevel.toFixed(2)}, Audio detected: ${audioDetected}`);
+
+  if (!audioDetected && maxLevel < 1) {
+    console.warn(`
+⚠️ WARNING: NO AUDIO DETECTED
+
+This is normal if no audio is playing yet.
+
+RECOMMENDATIONS:
+• Start playing audio now (YouTube, Spotify, etc.)
+• Make sure system volume is audible
+• Recording will work once audio starts
+
+This doesn't mean recording failed - just that no audio is currently playing!
+    `.trim());
+  } else {
+    console.log('✅ Audio validation passed!');
+  }
 }
