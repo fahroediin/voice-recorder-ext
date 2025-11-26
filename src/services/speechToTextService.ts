@@ -16,141 +16,225 @@ export interface TranscriptionResult {
 }
 
 class SpeechToTextService {
-  private recognition: SpeechRecognition | null = null;
-  private isListening = false;
-  private interimTranscript = '';
-  private finalTranscript = '';
-  private segments: TranscriptionSegment[] = [];
-  private startTime = 0;
-
   constructor() {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      // Use type assertion to handle the browser-specific API
-      const SpeechRecognitionClass = (window.SpeechRecognition || window.webkitSpeechRecognition) as any;
-      this.recognition = new SpeechRecognitionClass();
-      this.setupRecognition();
-    }
+    // Constructor is now simplified since we're doing post-recording processing
   }
 
   /**
-   * Setup speech recognition
+   * Transcribe audio file using direct Gemini approach
+   * This method processes recorded audio files directly
    */
-  private setupRecognition(): void {
-    if (!this.recognition) return;
+  async transcribeAudioFile(
+    audioBlob: Blob,
+    language: string = 'id-ID'
+  ): Promise<TranscriptionResult> {
+    try {
+      console.log('🎙️ Starting audio file transcription...');
+      console.log('🎙️ Audio blob size:', audioBlob.size);
+      console.log('🎙️ Audio blob type:', audioBlob.type);
+      console.log('🎙️ Target language:', language);
 
-    this.recognition.continuous = true;
-    this.recognition.interimResults = true;
-    this.recognition.lang = 'id-ID'; // Default to Indonesian
-    this.recognition.maxAlternatives = 1;
+      // Try multiple approaches
+      const approaches = [
+        () => this.transcribeWithDirectGemini(audioBlob, language),
+        () => this.transcribeWithWhisperApi(audioBlob, language),
+        () => this.transcribeWithAudioContext(audioBlob, language)
+      ];
 
-    this.recognition.onstart = () => {
-      this.isListening = true;
-      this.startTime = Date.now();
-      console.log('🎤 Speech recognition started');
-    };
+      let lastError: Error | null = null;
 
-    this.recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interimTranscript = '';
+      for (let i = 0; i < approaches.length; i++) {
+        try {
+          console.log(`🔄 Trying approach ${i + 1}/${approaches.length}...`);
+          const result = await approaches[i]();
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const transcript = result[0].transcript;
-
-        if (result.isFinal) {
-          this.finalTranscript += transcript + ' ';
-          this.segments.push({
-            text: transcript,
-            timestamp: Date.now() - this.startTime,
-            confidence: result[0].confidence
-          });
-          console.log('✅ Final transcript:', transcript);
-        } else {
-          interimTranscript += transcript;
+          if (result.fullText.trim()) {
+            console.log('✅ Transcription successful with approach', i + 1);
+            return result;
+          } else {
+            console.log(`⚠️ Approach ${i + 1} returned empty result`);
+          }
+        } catch (error) {
+          console.error(`❌ Approach ${i + 1} failed:`, error);
+          lastError = error instanceof Error ? error : new Error('Unknown error');
         }
       }
 
-      this.interimTranscript = interimTranscript;
-    };
+      // If all approaches failed, provide a helpful error message
+      throw lastError || new Error('All transcription approaches failed');
 
-    this.recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      console.error('🎤 Speech recognition error:', event.error);
-      this.isListening = false;
-
-      let errorMessage = 'Speech recognition error';
-      switch (event.error) {
-        case 'not-allowed':
-          errorMessage = 'Microphone permission denied. Please allow microphone access.';
-          break;
-        case 'no-speech':
-          errorMessage = 'No speech detected. Please speak clearly.';
-          break;
-        case 'network':
-          errorMessage = 'Network error. Please check your internet connection.';
-          break;
-        case 'service-not-allowed':
-          errorMessage = 'Speech recognition service not allowed. Please try again.';
-          break;
-      }
-
-      throw new Error(errorMessage);
-    };
-
-    this.recognition.onend = () => {
-      this.isListening = false;
-      console.log('🎤 Speech recognition ended');
-    };
-  }
-
-  /**
-   * Start speech recognition
-   */
-  async startTranscription(language: string = 'id-ID'): Promise<void> {
-    if (!this.recognition) {
-      throw new Error('Speech recognition is not supported in this browser. Please use Chrome.');
-    }
-
-    if (this.isListening) {
-      console.log('Speech recognition is already running');
-      return;
-    }
-
-    try {
-      this.reset();
-      this.recognition.lang = language;
-      this.recognition.start();
     } catch (error) {
-      console.error('Failed to start speech recognition:', error);
-      throw new Error('Failed to start speech recognition. Please try again.');
+      console.error('Failed to transcribe audio file:', error);
+
+      // Provide specific troubleshooting tips
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`
+Transcription failed. Please try the following:
+
+1. 🎤 Check audio quality: Ensure you spoke clearly and close to the microphone
+2. 🔊 Volume check: Make sure the audio has sufficient volume
+3. 🎯 Language match: Ensure you selected the correct language (Indonesian/English)
+4. 🎙️ Microphone: Verify your microphone is working properly
+5. ⏱️ Duration: Record at least 10-15 seconds of speech
+
+Technical error: ${errorMessage}
+      `.trim());
     }
   }
 
   /**
-   * Stop speech recognition
+   * Direct Gemini transcription approach
    */
-  stopTranscription(): TranscriptionResult {
-    if (this.recognition && this.isListening) {
-      this.recognition.stop();
+  private async transcribeWithDirectGemini(
+    audioBlob: Blob,
+    language: string
+  ): Promise<TranscriptionResult> {
+    console.log('🤖 Attempting direct Gemini transcription...');
+
+    const audioBase64 = await this.blobToBase64(audioBlob);
+    const languageName = language === 'id-ID' ? 'Indonesian' : 'English';
+
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const prompt = `
+TRANSCRIBE THIS AUDIO FILE - ${languageName.toUpperCase()} LANGUAGE
+
+You are receiving a WebM audio file that needs to be transcribed. This is a Chrome extension recording.
+
+TASK: Transcribe the speech content from the provided base64-encoded WebM audio.
+
+AUDIO DETAILS:
+- File Type: WebM audio recording
+- File Size: ${audioBlob.size} bytes (${(audioBlob.size / 1024 / 1024).toFixed(2)} MB)
+- Target Language: ${languageName}
+- Source: Chrome extension voice recording
+
+CRITICAL INSTRUCTIONS:
+1. The audio data is encoded in base64 and represents a WebM audio file
+2. This audio contains human speech that needs to be transcribed
+3. Listen for and transcribe ALL spoken words in ${languageName}
+4. Include proper punctuation, capitalization, and sentence structure
+5. Remove obvious filler words (um, uh, like) but keep the core meaning
+6. If multiple people are speaking, indicate speaker changes
+
+IMPORTANT: This is NOT text data - this is actual audio data that needs to be "listened to" and transcribed.
+
+RESPONSE FORMAT:
+If you detect speech:
+---
+TRANSCRIPTION:
+[Write the complete transcription here in ${languageName}]
+---
+
+If you absolutely cannot detect any speech or process the audio:
+---
+NO_SPEECH_DETECTED
+---
+
+Begin transcribing:
+
+data:audio/webm;base64,${audioBase64}
+    `.trim();
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const transcript = response.text();
+
+    console.log('🤖 Gemini response length:', transcript.length);
+    console.log('🤖 Gemini response preview:', transcript.substring(0, 200) + '...');
+
+    if (transcript.includes('NO_SPEECH_DETECTED')) {
+      throw new Error('No speech detected in audio');
     }
 
-    const result: TranscriptionResult = {
-      fullText: this.finalTranscript.trim(),
-      segments: [...this.segments],
-      language: this.recognition?.lang || 'id-ID'
+    // Extract transcription using the specified format
+    const transcriptionMatch = transcript.match(/TRANSCRIPTION:\s*\n([\s\S]*?)(?:\n---|$)/);
+    const finalText = transcriptionMatch ? transcriptionMatch[1].trim() : transcript.trim();
+
+    // Clean up the result - remove any remaining markers
+    const cleanedText = finalText
+      .replace(/^---+|---+$/gm, '') // Remove markdown dashes
+      .replace(/^TRANSCRIPTION:$/im, '') // Remove label if present
+      .trim();
+
+    console.log('🤖 Extracted transcription length:', cleanedText.length);
+    console.log('🤖 Extracted transcription preview:', cleanedText.substring(0, 100) + '...');
+
+    if (!cleanedText || cleanedText.length < 5) {
+      console.log('⚠️ Transcription result too short or empty');
+      throw new Error('Transcription too short or empty. Audio may not contain clear speech.');
+    }
+
+    const transcriptionResult: TranscriptionResult = {
+      fullText: cleanedText,
+      segments: [{
+        text: cleanedText,
+        timestamp: 0,
+        confidence: 0.85
+      }],
+      language
     };
 
-    console.log('📝 Transcription completed:', result);
-    return result;
+    console.log('🤖 Direct Gemini transcription completed');
+    return transcriptionResult;
   }
 
   /**
-   * Get current transcription state
+   * Placeholder for Whisper API approach
    */
-  getCurrentTranscription(): { final: string; interim: string; isListening: boolean } {
-    return {
-      final: this.finalTranscript,
-      interim: this.interimTranscript,
-      isListening: this.isListening
-    };
+  private async transcribeWithWhisperApi(
+    _audioBlob: Blob,
+    _language: string
+  ): Promise<TranscriptionResult> {
+    console.log('🎙️ Whisper API not configured, skipping...');
+    throw new Error('Whisper API not available');
+  }
+
+  /**
+   * Placeholder for future audio processing methods
+   */
+  private async transcribeWithAudioContext(
+    _audioBlob: Blob,
+    _language: string
+  ): Promise<TranscriptionResult> {
+    console.log('🎵 Audio context analysis not yet implemented...');
+    throw new Error('Audio context approach not yet implemented');
+  }
+
+  
+  /**
+   * Convert blob to base64 (with chunking for large files)
+   */
+  private async blobToBase64(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          // Get the full data URL
+          const dataUrl = reader.result;
+          console.log('📎 Audio data URL length:', dataUrl.length);
+
+          // Extract base64 part (remove data URL prefix)
+          const base64 = dataUrl.split(',')[1];
+          if (base64) {
+            console.log('📎 Base64 audio length:', base64.length);
+            resolve(base64);
+          } else {
+            // Fallback: use full data URL if split doesn't work
+            resolve(dataUrl);
+          }
+        } else {
+          reject(new Error('Failed to convert blob to base64'));
+        }
+      };
+      reader.onerror = (error) => {
+        console.error('❌ FileReader error:', error);
+        reject(new Error('Failed to read audio file'));
+      };
+
+      console.log('📎 Converting blob to base64, size:', blob.size);
+      reader.readAsDataURL(blob);
+    });
   }
 
   /**
@@ -161,7 +245,7 @@ class SpeechToTextService {
     context?: string
   ): Promise<string> {
     try {
-      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-fash' });
 
       const prompt = `
 Please clean up and format this speech-to-text transcript. The transcript may contain:
@@ -239,97 +323,15 @@ Format the summary clearly with headings and make it professional and easy to re
   }
 
   /**
-   * Reset transcription state
-   */
-  private reset(): void {
-    this.interimTranscript = '';
-    this.finalTranscript = '';
-    this.segments = [];
-    this.startTime = 0;
-  }
-
-  /**
    * Check if speech recognition is supported
    */
   isSupported(): boolean {
-    return this.recognition !== null;
-  }
-
-  /**
-   * Check if currently listening
-   */
-  isActive(): boolean {
-    return this.isListening;
+    return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
   }
 }
 
 // Create singleton instance
 export const speechToTextService = new SpeechToTextService();
-
-// Type definitions for Web Speech API
-interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  grammars: SpeechGrammarList;
-  interimResults: boolean;
-  lang: string;
-  maxAlternatives: number;
-  serviceURI: string;
-  start(): void;
-  stop(): void;
-  abort(): void;
-  onaudioend: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onaudiostart: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onend: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onerror: ((this: SpeechRecognition, ev: SpeechRecognitionErrorEvent) => any) | null;
-  onnomatch: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
-  onresult: ((this: SpeechRecognition, ev: SpeechRecognitionEvent) => any) | null;
-  onsoundend: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onsoundstart: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onspeechend: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onspeechstart: ((this: SpeechRecognition, ev: Event) => any) | null;
-  onstart: ((this: SpeechRecognition, ev: Event) => any) | null;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-  message?: string;
-}
-
-interface SpeechRecognitionEvent extends Event {
-  resultIndex: number;
-  results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionResultList {
-  length: number;
-  item(index: number): SpeechRecognitionResult;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionResult {
-  isFinal: boolean;
-  length: number;
-  item(index: number): SpeechRecognitionAlternative;
-  [index: number]: SpeechRecognitionAlternative;
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-
-interface SpeechGrammarList {
-  length: number;
-  addFromString(string: string, weight?: number): void;
-  addFromURI(src: string, weight?: number): void;
-  item(index: number): SpeechGrammar;
-  [index: number]: SpeechGrammar;
-}
-
-interface SpeechGrammar {
-  src: string;
-  weight: number;
-}
 
 declare global {
   interface Window {

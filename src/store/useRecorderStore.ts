@@ -38,8 +38,8 @@ interface RecorderState {
   // Speech-to-text state
   isTranscribing: boolean;
   transcription: string;
-  interimTranscription: string;
   transcriptionEnabled: boolean;
+  transcriptionLanguage: 'id-ID' | 'en-US';
 
   // Actions
   setActivityName: (name: string) => void;
@@ -57,11 +57,10 @@ interface RecorderState {
   setAudioSource: (source: 'microphone' | 'system' | 'both') => void;
   loadAudioDevices: () => Promise<void>;
   setSelectedMicrophoneId: (deviceId: string | null) => void;
-  startTranscription: () => Promise<void>;
-  stopTranscription: () => Promise<TranscriptionResult>;
+  transcribeAudio: (audioBlob: Blob) => Promise<TranscriptionResult>;
   setTranscription: (text: string) => void;
-  setInterimTranscription: (text: string) => void;
   setTranscriptionEnabled: (enabled: boolean) => void;
+  setTranscriptionLanguage: (language: 'id-ID' | 'en-US') => void;
 }
 
 export const useRecorderStore = create<RecorderState>((set, get) => ({
@@ -83,8 +82,8 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   selectedMicrophoneId: null,
   isTranscribing: false,
   transcription: '',
-  interimTranscription: '',
   transcriptionEnabled: false,
+  transcriptionLanguage: 'id-ID',
 
   // Actions
   setActivityName: (name: string) =>
@@ -227,44 +226,21 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   setSelectedMicrophoneId: (deviceId: string | null) =>
     set({ selectedMicrophoneId: deviceId }),
 
-  startTranscription: async () => {
-    if (!speechToTextService.isSupported()) {
-      throw new Error('Speech recognition is not supported in this browser. Please use Chrome.');
-    }
-
+  transcribeAudio: async (audioBlob: Blob) => {
     try {
-      set({ isTranscribing: true, transcription: '', interimTranscription: '' });
-      await speechToTextService.startTranscription('id-ID');
+      set({ isTranscribing: true, transcription: '' });
 
-      // Start polling for transcription updates
-      const pollInterval = setInterval(() => {
-        const current = speechToTextService.getCurrentTranscription();
-        if (current.isListening) {
-          set({
-            transcription: current.final,
-            interimTranscription: current.interim
-          });
-        } else {
-          clearInterval(pollInterval);
-          set({ isTranscribing: false, interimTranscription: '' });
-        }
-      }, 100);
+      const state = get();
+      const result = await speechToTextService.transcribeAudioFile(
+        audioBlob,
+        state.transcriptionLanguage
+      );
 
-      return;
-    } catch (error) {
-      set({ isTranscribing: false });
-      throw error;
-    }
-  },
-
-  stopTranscription: async () => {
-    try {
-      const result = speechToTextService.stopTranscription();
       set({
         isTranscribing: false,
-        transcription: result.fullText,
-        interimTranscription: ''
+        transcription: result.fullText
       });
+
       return result;
     } catch (error) {
       set({ isTranscribing: false });
@@ -275,9 +251,9 @@ export const useRecorderStore = create<RecorderState>((set, get) => ({
   setTranscription: (text: string) =>
     set({ transcription: text }),
 
-  setInterimTranscription: (text: string) =>
-    set({ interimTranscription: text }),
-
   setTranscriptionEnabled: (enabled: boolean) =>
     set({ transcriptionEnabled: enabled }),
+
+  setTranscriptionLanguage: (language: 'id-ID' | 'en-US') =>
+    set({ transcriptionLanguage: language }),
 }));

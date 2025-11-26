@@ -51,8 +51,8 @@ export const SidePanel: React.FC = () => {
     selectedMicrophoneId,
     isTranscribing,
     transcription,
-    interimTranscription,
     transcriptionEnabled,
+    transcriptionLanguage,
     setActivityName,
     setDescription,
     setNotes,
@@ -68,10 +68,10 @@ export const SidePanel: React.FC = () => {
     setAudioSource,
     loadAudioDevices,
     setSelectedMicrophoneId,
-    startTranscription,
-    stopTranscription,
+    transcribeAudio,
     setTranscription,
     setTranscriptionEnabled,
+    setTranscriptionLanguage,
   } = useRecorderStore();
 
   // Load setup status and audio devices on component mount
@@ -219,30 +219,28 @@ export const SidePanel: React.FC = () => {
     }
   };
 
-  const handleStartTranscription = async () => {
-    try {
-      console.log('🎙️ Starting speech-to-text transcription...');
-      await startTranscription();
-    } catch (error) {
-      console.error('Failed to start transcription:', error);
-      alert(`🎙️ Failed to start transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  const handleTranscribeAudio = async () => {
+    if (!currentSession.audioBlob) {
+      alert('🎙️ No audio recording available. Please record audio first.');
+      return;
     }
-  };
 
-  const handleStopTranscription = async () => {
     try {
-      console.log('⏹️ Stopping transcription...');
-      const result = await stopTranscription();
+      console.log('🎙️ Starting audio transcription...');
+      const result = await transcribeAudio(currentSession.audioBlob);
 
       // Add transcription to notes
       if (result.fullText.trim()) {
         const currentNotes = currentSession.notes || '';
-        const transcriptionText = `\n\n--- Live Transcription ---\n${result.fullText.trim()}`;
+        const transcriptionText = `\n\n--- Audio Transcription (${transcriptionLanguage === 'id-ID' ? 'Indonesian' : 'English'}) ---\n${result.fullText.trim()}`;
         setNotes(currentNotes + transcriptionText);
+        alert(`✅ Transcription completed! Added ${result.segments.length} text segments to notes.`);
+      } else {
+        alert('⚠️ Transcription completed but no speech was detected. Please try again with clearer audio.');
       }
     } catch (error) {
-      console.error('Failed to stop transcription:', error);
-      alert(`⏹️ Failed to stop transcription: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Failed to transcribe audio:', error);
+      alert(`🎙️ Failed to transcribe audio: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -412,7 +410,7 @@ export const SidePanel: React.FC = () => {
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm text-purple-800">
-              🎙️ Real-time speech transcription
+              🎙️ Audio-to-Text Transcription
             </span>
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -427,26 +425,38 @@ export const SidePanel: React.FC = () => {
 
           {transcriptionEnabled && (
             <>
+              {/* Language Selection */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-purple-700">Language:</span>
+                <select
+                  value={transcriptionLanguage}
+                  onChange={(e) => setTranscriptionLanguage(e.target.value as 'id-ID' | 'en-US')}
+                  className="text-xs border border-purple-300 rounded px-2 py-1 bg-white text-purple-800"
+                >
+                  <option value="id-ID">Indonesian</option>
+                  <option value="en-US">English</option>
+                </select>
+              </div>
+
               <div className="flex gap-2">
-                {!isTranscribing ? (
-                  <Button
-                    onClick={handleStartTranscription}
-                    size="sm"
-                    className="bg-purple-600 hover:bg-purple-700 text-white"
-                  >
-                    <MessageCircle className="w-4 h-4 mr-1" />
-                    Start Transcription
-                  </Button>
-                ) : (
-                  <Button
-                    onClick={handleStopTranscription}
-                    size="sm"
-                    variant="destructive"
-                  >
-                    <Square className="w-4 h-4 mr-1" />
-                    Stop Transcription
-                  </Button>
-                )}
+                <Button
+                  onClick={handleTranscribeAudio}
+                  size="sm"
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                  disabled={!currentSession.audioBlob || isTranscribing}
+                >
+                  {isTranscribing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      Transcribing...
+                    </>
+                  ) : (
+                    <>
+                      <MessageCircle className="w-4 h-4 mr-1" />
+                      Transcribe Audio
+                    </>
+                  )}
+                </Button>
 
                 {transcription && (
                   <>
@@ -473,17 +483,25 @@ export const SidePanel: React.FC = () => {
                 )}
               </div>
 
-              {/* Live Transcription Display */}
-              {(isTranscribing || transcription) && (
-                <div className="bg-white border border-purple-200 rounded p-2 max-h-32 overflow-y-auto">
-                  <div className="text-xs text-gray-600 mb-1">
-                    {isTranscribing ? '🔴 Live transcription...' : '📝 Transcription complete'}
-                  </div>
-                  <div className="text-sm">
-                    {transcription}
-                    {interimTranscription && (
-                      <span className="text-gray-400 italic"> {interimTranscription}</span>
-                    )}
+              {/* Status Display */}
+              <div className="text-xs text-purple-600">
+                {!currentSession.audioBlob ? (
+                  "📝 Record audio first, then click 'Transcribe Audio'"
+                ) : isTranscribing ? (
+                  "🔄 Processing audio file... This may take a moment."
+                ) : transcription ? (
+                  "✅ Transcription completed! Check the notes section below."
+                ) : (
+                  "🎙️ Ready to transcribe recorded audio."
+                )}
+              </div>
+
+              {/* Transcription Preview */}
+              {transcription && (
+                <div className="bg-white border border-purple-200 rounded p-2 max-h-24 overflow-y-auto">
+                  <div className="text-xs text-gray-600 mb-1">📝 Latest transcription:</div>
+                  <div className="text-sm italic">
+                    {transcription.substring(0, 200)}{transcription.length > 200 ? '...' : ''}
                   </div>
                 </div>
               )}
@@ -491,7 +509,7 @@ export const SidePanel: React.FC = () => {
           )}
 
           <div className="text-xs text-purple-600">
-            💡 Uses Chrome's built-in speech recognition + Gemini AI enhancement
+            💡 Processes recorded audio files using speech recognition + Gemini AI enhancement
           </div>
         </div>
       </div>

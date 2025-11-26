@@ -18,10 +18,28 @@ chrome.runtime.onMessage.addListener((message: RecordingMessage, _sender, sendRe
 
   switch (message.type) {
     case 'START_RECORDING':
-      console.log('Starting recording with audio source:', message.audioSource, 'mic ID:', message.microphoneId);
+      console.log('🎤 Starting recording with audio source:', message.audioSource);
+      console.log('🎤 Microphone ID from message:', message.microphoneId);
+      console.log('🎤 Available audio devices before recording:');
+
+      // Log available devices for debugging
+      navigator.mediaDevices.enumerateDevices().then(devices => {
+        const audioInputs = devices.filter(device => device.kind === 'audioinput');
+        console.log('🎤 Available microphones:');
+        audioInputs.forEach((device, index) => {
+          console.log(`  ${index + 1}. ID: ${device.deviceId}, Label: ${device.label || 'Unknown'}`);
+        });
+      });
+
       startRecording(message.audioSource, message.microphoneId)
-        .then(() => sendResponse({ success: true }))
-        .catch((error) => sendResponse({ success: false, error: error.message }));
+        .then(() => {
+          console.log('✅ Recording started successfully');
+          sendResponse({ success: true });
+        })
+        .catch((error) => {
+          console.error('❌ Recording failed to start:', error);
+          sendResponse({ success: false, error: error.message });
+        });
       return true; // Keep message channel open for async response
 
     case 'STOP_RECORDING':
@@ -108,15 +126,20 @@ async function startRecording(
       }
 
       try {
+        console.log('🎤 Requesting microphone access...');
+        console.log('🎤 Target microphone ID:', microphoneId);
+
         // Get microphone with specific device ID if provided
-        const audioConstraints: MediaStreamConstraints = {
-          audio: microphoneId ? {
+        const audioConstraints: MediaStreamConstraints = microphoneId ? {
+          audio: {
             deviceId: { exact: microphoneId },
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
             sampleRate: 44100
-          } : {
+          }
+        } : {
+          audio: {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
@@ -124,10 +147,25 @@ async function startRecording(
           }
         };
 
+        console.log('🎤 Audio constraints:', JSON.stringify(audioConstraints, null, 2));
+
         micStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
-        console.log('Microphone access granted', microphoneId ? `with device ID: ${microphoneId}` : 'with default device');
+
+        // Verify the actual device used
+        const audioTracks = micStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          const track = audioTracks[0];
+          const settings = track.getSettings();
+          console.log('🎤 Microphone access granted!');
+          console.log('🎤 Actual device settings:', settings);
+          console.log('🎤 Device ID used:', settings.deviceId);
+          console.log('🎤 Device label:', track.label || 'Unknown');
+        }
+
       } catch (micError) {
-        console.error('Microphone access denied:', micError);
+        console.error('❌ Microphone access denied:', micError);
+        console.error('❌ Error details:', micError instanceof Error ? micError.message : micError);
+
         // Clean up system audio if mic fails
         if (systemStream) {
           systemStream.getTracks().forEach(track => track.stop());
@@ -135,7 +173,7 @@ async function startRecording(
 
         // If specific device failed, try fallback to default
         if (microphoneId) {
-          console.warn('Failed to use selected microphone, trying default...');
+          console.warn('⚠️ Failed to use selected microphone, trying default...');
           try {
             micStream = await navigator.mediaDevices.getUserMedia({
               audio: {
@@ -145,8 +183,19 @@ async function startRecording(
                 sampleRate: 44100
               }
             });
-            console.log('Fallback microphone access granted');
+
+            // Log fallback device info
+            const audioTracks = micStream.getAudioTracks();
+            if (audioTracks.length > 0) {
+              const track = audioTracks[0];
+              const settings = track.getSettings();
+              console.log('🔄 Fallback microphone access granted');
+              console.log('🔄 Fallback device ID:', settings.deviceId);
+              console.log('🔄 Fallback device label:', track.label || 'Unknown');
+            }
+
           } catch (fallbackError) {
+            console.error('❌ Fallback microphone also failed:', fallbackError);
             throw new Error('Microphone access is required for recording. Please allow microphone access.');
           }
         } else {
